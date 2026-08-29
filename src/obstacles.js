@@ -1,5 +1,5 @@
 import { CONFIG } from "./config.js";
-import { centeredRect } from "./collision.js";
+import { centeredRect, rectsOverlap } from "./collision.js";
 
 export function obstacleSpeedForTime(seconds) {
   const t = Math.max(0, Math.min(1, seconds / CONFIG.DIFFICULTY_RAMP_SECONDS));
@@ -37,23 +37,29 @@ export function obstacleSinkForX(x) {
   return CONFIG.OBSTACLE_SUBMERGE_SINK_PX * obstacleSubmergeProgressForX(x);
 }
 
-export function createObstacleEvent({ surferY, elapsed, random = Math.random, validator = isEventFair }) {
+export function createObstacleEvent({
+  surferY,
+  elapsed,
+  activeHeads = [],
+  random = Math.random,
+  validator = isEventFair
+}) {
   const speed = obstacleSpeedForTime(elapsed);
   const weights = eventWeightsForTime(elapsed);
   const type = random() < weights.single ? "single" : "double";
   const spawnX = CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING;
 
-  for (let attempt = 0; attempt < 30; attempt += 1) {
+  for (let attempt = 0; attempt < CONFIG.HEAD_SPAWN_PLACEMENT_RETRIES; attempt += 1) {
     const candidate = type === "single"
       ? createSingle(spawnX, speed, random)
       : createDouble(spawnX, speed, random);
 
-    if (validator(candidate, surferY, speed)) {
+    if (validator(candidate, surferY, speed, activeHeads) && isEventPlacementClear(candidate, activeHeads)) {
       return { ...candidate, attemptCount: attempt + 1 };
     }
   }
 
-  return createSafeFallback(spawnX, speed, surferY);
+  return null;
 }
 
 export function canSpawnNextEvent(activeEvent) {
@@ -77,6 +83,31 @@ export function isEventFair(event, surferY, speed) {
   return safeIntervals.some(([top, bottom]) => bottom >= reachableTop && top <= reachableBottom);
 }
 
+export function hasMinimumHeadSeparation(head, otherHead) {
+  return !rectsOverlap(expandedRenderBounds(head), expandedRenderBounds(otherHead));
+}
+
+export function isEventPlacementClear(event, activeHeads = []) {
+  const heads = event.heads;
+  const visibleActiveHeads = activeHeads.filter(isHeadVisiblyPresent);
+
+  for (let i = 0; i < heads.length; i += 1) {
+    for (let j = i + 1; j < heads.length; j += 1) {
+      if (!hasMinimumHeadSeparation(heads[i], heads[j])) return false;
+    }
+
+    if (visibleActiveHeads.some((head) => !hasMinimumHeadSeparation(heads[i], head))) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+export function isHeadVisiblyPresent(head) {
+  return !(head.resolved === true && obstacleOpacityForX(head.x) <= 0);
+}
+
 export class ObstacleManager {
   constructor() {
     this.reset();
@@ -84,18 +115,16 @@ export class ObstacleManager {
 
   reset() {
     this.activeEvent = null;
+    this.encounterObstacles = [];
     this.spawnTimer = 0.55;
   }
 
-  update(dt, elapsed, surferY) {
+  update(dt, elapsed, surferY, options = {}) {
+    const pauseSpawns = options.pauseSpawns === true;
+    const encounterDodged = this.updateEncounterObstacles(dt);
+
     if (this.activeEvent) {
-      this.activeEvent.heads.forEach((head) => {
-        if (head.resolved) return;
-        head.x -= this.activeEvent.speed * dt;
-        if (head.x <= CONFIG.OBSTACLE_SUBMERGE_END_X) {
-          head.resolved = true;
-        }
-      });
+      updateObstacles(this.activeEvent.heads, dt, this.activeEvent.speed);
 
       const newlyDodged = this.activeEvent.heads.filter((head) => head.resolved && !head.counted).length;
       this.activeEvent.heads.forEach((head) => {
@@ -112,57 +141,148 @@ export class ObstacleManager {
         const dodged = this.activeEvent.collided ? 0 : newlyDodged;
         this.activeEvent = null;
         this.spawnTimer = spawnDelayForTime(elapsed);
-        return dodged;
+        return dodged + encounterDodged;
       }
 
-      return this.activeEvent.collided ? 0 : newlyDodged;
+      return (this.activeEvent.collided ? 0 : newlyDodged) + encounterDodged;
     }
 
-    this.spawnTimer -= dt;
-    if (this.spawnTimer <= 0 && canSpawnNextEvent(this.activeEvent)) {
-      this.activeEvent = createObstacleEvent({ surferY, elapsed });
+    if (!pauseSpawns) {
+      this.spawnTimer -= dt;
+    }
+    if (!pauseSpawns && this.spawnTimer <= 0 && canSpawnNextEvent(this.activeEvent)) {
+      this.activeEvent = createObstacleEvent({
+        surferY,
+        elapsed,
+        activeHeads: options.activeHeads ?? this.activeHeads()
+      });
+      if (!this.activeEvent) {
+        this.spawnTimer = spawnDelayForTime(elapsed);
+      }
     }
 
-    return 0;
+    return encounterDodged;
+  }
+
+  updateEncounterObstacles(dt) {
+    updateObstacles(this.encounterObstacles, dt);
+
+    const newlyDodged = this.encounterObstacles.filter((obstacle) => obstacle.resolved && !obstacle.counted).length;
+    this.encounterObstacles.forEach((obstacle) => {
+      if (obstacle.resolved) obstacle.counted = true;
+    });
+    this.encounterObstacles = this.encounterObstacles.filter((obstacle) => !obstacle.resolved);
+
+    return newlyDodged;
+  }
+
+  addObstacle(obstacle) {
+    this.encounterObstacles.push({
+      type: "encounter",
+      assetKey: obstacle.assetKey,
+      x: obstacle.x,
+      y: obstacle.y,
+      width: obstacle.width,
+      height: obstacle.height,
+      speed: obstacle.speed,
+      hitboxScaleX: obstacle.hitboxScaleX ?? obstacle.collisionScale ?? CONFIG.HEAD_HITBOX_SCALE_X,
+      hitboxScaleY: obstacle.hitboxScaleY ?? obstacle.collisionScale ?? CONFIG.HEAD_HITBOX_SCALE_Y,
+      bobAmount: obstacle.bobAmount ?? 0,
+      bobSpeed: obstacle.bobSpeed ?? 5,
+      bobOffset: obstacle.bobOffset ?? Math.random() * Math.PI * 2,
+      resolved: false,
+      counted: false
+    });
   }
 
   draw(ctx, assets) {
-    if (!this.activeEvent) return;
+    if (this.activeEvent) {
+      for (const head of this.activeEvent.heads) {
+        drawObstacle(ctx, assets.head, head);
+      }
+    }
 
-    for (const head of this.activeEvent.heads) {
-      const opacity = obstacleOpacityForX(head.x);
-      if (opacity <= 0) continue;
-
-      ctx.save();
-      ctx.globalAlpha = opacity;
-      ctx.drawImage(
-        assets.head,
-        head.x - head.width / 2,
-        head.y - head.height / 2 + obstacleSinkForX(head.x),
-        head.width,
-        head.height
-      );
-      ctx.restore();
+    for (const obstacle of this.encounterObstacles) {
+      drawObstacle(ctx, obstacleImage(assets, obstacle), obstacle);
     }
   }
 
   hitboxes() {
-    if (!this.activeEvent) return [];
-    return this.activeEvent.heads
-      .filter((head) => !head.resolved && obstacleOpacityForX(head.x) > 0)
-      .map((head) =>
-        centeredRect(head.x, head.y, head.width * CONFIG.HEAD_HITBOX_SCALE_X, head.height * CONFIG.HEAD_HITBOX_SCALE_Y)
+    const headHitboxes = this.activeEvent
+      ? this.activeEvent.heads
+        .filter((head) => !head.resolved && obstacleOpacityForX(head.x) > 0)
+        .map((head) =>
+          centeredRect(head.x, head.y, head.width * CONFIG.HEAD_HITBOX_SCALE_X, head.height * CONFIG.HEAD_HITBOX_SCALE_Y)
+        )
+      : [];
+
+    const encounterHitboxes = this.encounterObstacles
+      .filter((obstacle) => !obstacle.resolved && obstacleOpacityForX(obstacle.x) > 0)
+      .map((obstacle) =>
+        centeredRect(
+          obstacle.x,
+          obstacle.y,
+          obstacle.width * obstacle.hitboxScaleX,
+          obstacle.height * obstacle.hitboxScaleY
+        )
       );
+
+    return [...headHitboxes, ...encounterHitboxes];
   }
 
   centers() {
-    if (!this.activeEvent) return [];
-    return this.activeEvent.heads.filter((head) => !head.resolved).map((head) => ({ x: head.x, y: head.y }));
+    const headCenters = this.activeEvent
+      ? this.activeEvent.heads.filter((head) => !head.resolved).map((head) => ({ x: head.x, y: head.y }))
+      : [];
+    const encounterCenters = this.encounterObstacles
+      .filter((obstacle) => !obstacle.resolved)
+      .map((obstacle) => ({ x: obstacle.x, y: obstacle.y }));
+    return [...headCenters, ...encounterCenters];
+  }
+
+  activeHeads() {
+    return this.activeEvent ? this.activeEvent.heads.filter(isHeadVisiblyPresent) : [];
   }
 
   markCollided() {
     if (this.activeEvent) this.activeEvent.collided = true;
   }
+}
+
+function updateObstacles(obstacles, dt, eventSpeed = null) {
+  obstacles.forEach((obstacle) => {
+    if (obstacle.resolved) return;
+    obstacle.x -= (eventSpeed ?? obstacle.speed) * dt;
+    obstacle.age = (obstacle.age ?? 0) + dt;
+    if (obstacle.x <= CONFIG.OBSTACLE_SUBMERGE_END_X) {
+      obstacle.resolved = true;
+    }
+  });
+}
+
+function drawObstacle(ctx, image, obstacle) {
+  const opacity = obstacleOpacityForX(obstacle.x);
+  if (!image || opacity <= 0) return;
+
+  const bob = obstacle.bobAmount
+    ? Math.sin((obstacle.age ?? 0) * obstacle.bobSpeed + obstacle.bobOffset) * obstacle.bobAmount
+    : 0;
+
+  ctx.save();
+  ctx.globalAlpha = opacity;
+  ctx.drawImage(
+    image,
+    obstacle.x - obstacle.width / 2,
+    obstacle.y - obstacle.height / 2 + obstacleSinkForX(obstacle.x) + bob,
+    obstacle.width,
+    obstacle.height
+  );
+  ctx.restore();
+}
+
+function obstacleImage(assets, obstacle) {
+  if (!obstacle.assetKey) return assets.head;
+  return assets.throwables?.[obstacle.assetKey] ?? assets[obstacle.assetKey] ?? assets.head;
 }
 
 function createSingle(spawnX, speed, random) {
@@ -195,22 +315,6 @@ function createDouble(spawnX, speed, random) {
   };
 }
 
-function createSafeFallback(spawnX, speed, surferY) {
-  const targetY = surferY > (CONFIG.SURF_BOUNDS.top + CONFIG.SURF_BOUNDS.bottom) / 2
-    ? CONFIG.SURF_BOUNDS.top + CONFIG.HEAD_DISPLAY_HEIGHT * 0.65
-    : CONFIG.SURF_BOUNDS.bottom - CONFIG.HEAD_DISPLAY_HEIGHT * 0.65;
-
-  return {
-    type: "single",
-    speed,
-    threatening: true,
-    collided: false,
-    attemptCount: 31,
-    fallback: true,
-    heads: [createHead(spawnX, targetY)]
-  };
-}
-
 function createHead(x, y) {
   return {
     x,
@@ -220,6 +324,15 @@ function createHead(x, y) {
     resolved: false,
     counted: false
   };
+}
+
+function expandedRenderBounds(head) {
+  return centeredRect(
+    head.x,
+    head.y,
+    head.width + CONFIG.HEAD_MIN_VISUAL_GAP_X,
+    head.height + CONFIG.HEAD_MIN_VISUAL_GAP_Y
+  );
 }
 
 function randomY(random) {

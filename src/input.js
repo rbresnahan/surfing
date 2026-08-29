@@ -1,17 +1,19 @@
-const MOVEMENT_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
+export const MOVEMENT_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
 const START_KEYS = new Set(["Space", "Enter"]);
 
 export class Input {
-  constructor() {
+  constructor(target = window) {
     this.keys = new Set();
-    this.lastDirection = "idle";
+    this.directionPriority = [];
     this.startPressed = false;
 
-    window.addEventListener("keydown", (event) => {
+    target.addEventListener("keydown", (event) => {
       if (MOVEMENT_KEYS.has(event.code)) {
         event.preventDefault();
+        if (!event.repeat && !this.keys.has(event.code)) {
+          this.directionPriority.push(event.code);
+        }
         this.keys.add(event.code);
-        this.lastDirection = directionFromCode(event.code);
       }
 
       if (START_KEYS.has(event.code)) {
@@ -20,12 +22,19 @@ export class Input {
       }
     });
 
-    window.addEventListener("keyup", (event) => {
+    target.addEventListener("keyup", (event) => {
       if (MOVEMENT_KEYS.has(event.code)) {
         event.preventDefault();
         this.keys.delete(event.code);
+        this.directionPriority = this.directionPriority.filter((code) => code !== event.code);
       }
     });
+  }
+
+  reset() {
+    this.keys.clear();
+    this.directionPriority = [];
+    this.startPressed = false;
   }
 
   consumeStart() {
@@ -53,21 +62,8 @@ export class Input {
   }
 
   visibleState() {
-    if (this.keys.size === 0) return "idle";
-
-    const vector = this.movementVector();
-    if (Math.abs(vector.x) > Math.abs(vector.y)) {
-      return vector.x > 0 ? "right" : "left";
-    }
-    if (Math.abs(vector.y) > Math.abs(vector.x)) {
-      return vector.y > 0 ? "down" : "up";
-    }
-
-    return this.keys.has(codeFromDirection(this.lastDirection))
-      ? this.lastDirection
-      : vector.y > 0
-        ? "down"
-        : "up";
+    const activeCode = this.directionPriority.at(-1);
+    return activeCode ? directionFromCode(activeCode) : "idle";
   }
 }
 
@@ -78,13 +74,4 @@ function directionFromCode(code) {
     ArrowLeft: "left",
     ArrowRight: "right"
   }[code] ?? "idle";
-}
-
-function codeFromDirection(direction) {
-  return {
-    up: "ArrowUp",
-    down: "ArrowDown",
-    left: "ArrowLeft",
-    right: "ArrowRight"
-  }[direction];
 }

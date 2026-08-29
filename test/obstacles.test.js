@@ -5,6 +5,9 @@ import {
   canSpawnNextEvent,
   createObstacleEvent,
   eventWeightsForTime,
+  hasMinimumHeadSeparation,
+  isHeadVisiblyPresent,
+  isEventPlacementClear,
   isEventFair,
   ObstacleManager,
   obstacleOpacityForX,
@@ -64,17 +67,20 @@ test("impossible candidates are rejected before a fallback is returned", () => {
   assert.equal(isEventFair(event, CONFIG.SURF_BOUNDS.bottom, event.speed), true);
 });
 
-test("generation has an attempt limit and safe fallback", () => {
+test("generation has an attempt limit and exits safely without an unsafe fallback", () => {
+  let checks = 0;
   const event = createObstacleEvent({
     surferY: CONFIG.SURF_BOUNDS.top,
     elapsed: 180,
     random: () => 0.5,
-    validator: () => false
+    validator: () => {
+      checks += 1;
+      return false;
+    }
   });
 
-  assert.equal(event.attemptCount, 31);
-  assert.equal(event.fallback, true);
-  assert.equal(isEventFair(event, CONFIG.SURF_BOUNDS.top, event.speed), true);
+  assert.equal(event, null);
+  assert.equal(checks, CONFIG.HEAD_SPAWN_PLACEMENT_RETRIES);
 });
 
 test("obstacle speed never exceeds configured maximum", () => {
@@ -86,6 +92,121 @@ test("only one obstacle event can threaten the player at once", () => {
   assert.equal(canSpawnNextEvent(null), true);
   assert.equal(canSpawnNextEvent({ threatening: true }), false);
   assert.equal(canSpawnNextEvent({ threatening: false }), true);
+});
+
+test("a head cannot spawn with rendered bounds overlapping an active head", () => {
+  const event = createObstacleEvent({
+    surferY: 300,
+    elapsed: 0,
+    activeHeads: [createTestHead(CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING, 300)],
+    random: () => 0.5
+  });
+
+  assert.equal(event, null);
+});
+
+test("configured minimum visual gap is respected", () => {
+  const head = createTestHead(400, 300);
+  const tooClose = createTestHead(400 + CONFIG.HEAD_DISPLAY_WIDTH + CONFIG.HEAD_MIN_VISUAL_GAP_X - 0.1, 300);
+  const clear = createTestHead(400 + CONFIG.HEAD_DISPLAY_WIDTH + CONFIG.HEAD_MIN_VISUAL_GAP_X, 300);
+
+  assert.equal(hasMinimumHeadSeparation(head, tooClose), false);
+  assert.equal(hasMinimumHeadSeparation(head, clear), true);
+});
+
+test("configured vertical visual gap is respected", () => {
+  const head = createTestHead(400, 300);
+  const tooClose = createTestHead(400, 300 + CONFIG.HEAD_DISPLAY_HEIGHT + CONFIG.HEAD_MIN_VISUAL_GAP_Y - 0.1);
+  const clear = createTestHead(400, 300 + CONFIG.HEAD_DISPLAY_HEIGHT + CONFIG.HEAD_MIN_VISUAL_GAP_Y);
+
+  assert.equal(hasMinimumHeadSeparation(head, tooClose), false);
+  assert.equal(hasMinimumHeadSeparation(head, clear), true);
+});
+
+test("vertically stacked heads with insufficient space are rejected", () => {
+  const event = fakeEvent([
+    { x: 500, y: 260 },
+    {
+      x: 500,
+      y: 260 + CONFIG.HEAD_DISPLAY_HEIGHT + CONFIG.HEAD_MIN_VISUAL_GAP_Y - 1
+    }
+  ]);
+
+  assert.equal(isEventPlacementClear(event), false);
+});
+
+test("multiple heads in the same proposed event are checked against one another", () => {
+  const event = fakeEvent([
+    { x: 500, y: 300 },
+    {
+      x: 500 + CONFIG.HEAD_DISPLAY_WIDTH + CONFIG.HEAD_MIN_VISUAL_GAP_X - 1,
+      y: 300
+    }
+  ]);
+
+  assert.equal(isEventPlacementClear(event), false);
+});
+
+test("visible fading or submerging heads continue to reserve spawn space", () => {
+  const activeHead = createTestHead(500, 300);
+  activeHead.x = CONFIG.OBSTACLE_SUBMERGE_START_X - 1;
+  activeHead.resolved = false;
+  const event = fakeEvent([{ x: activeHead.x, y: activeHead.y }]);
+
+  assert.equal(obstacleOpacityForX(activeHead.x) > 0, true);
+  assert.equal(isHeadVisiblyPresent(activeHead), true);
+  assert.equal(isEventPlacementClear(event, [activeHead]), false);
+});
+
+test("resolved heads still reserve space while they remain visible", () => {
+  const activeHead = createTestHead(CONFIG.OBSTACLE_SUBMERGE_START_X - 1, 300);
+  activeHead.resolved = true;
+  const event = fakeEvent([{ x: activeHead.x, y: activeHead.y }]);
+
+  assert.equal(obstacleOpacityForX(activeHead.x) > 0, true);
+  assert.equal(isHeadVisiblyPresent(activeHead), true);
+  assert.equal(isEventPlacementClear(event, [activeHead]), false);
+});
+
+test("fully resolved and invisible heads no longer reserve spawn space", () => {
+  const activeHead = createTestHead(CONFIG.OBSTACLE_SUBMERGE_END_X, 300);
+  activeHead.resolved = true;
+  const event = fakeEvent([{ x: activeHead.x, y: activeHead.y }]);
+
+  assert.equal(obstacleOpacityForX(activeHead.x), 0);
+  assert.equal(isHeadVisiblyPresent(activeHead), false);
+  assert.equal(isEventPlacementClear(event, [activeHead]), true);
+});
+
+test("a failed placement attempt is retried", () => {
+  const event = createObstacleEvent({
+    surferY: 300,
+    elapsed: 0,
+    activeHeads: [createTestHead(CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING, randomYAt(0.5))],
+    random: fixedRandom([0.1, 0.5, 0])
+  });
+
+  assert.notEqual(event, null);
+  assert.equal(event.attemptCount, 2);
+  assert.equal(isEventPlacementClear(event, [createTestHead(CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING, randomYAt(0.5))]), true);
+});
+
+test("no valid placement leaves no unintended partial group in the manager", () => {
+  const manager = new ObstacleManager();
+  manager.spawnTimer = 0;
+  manager.update(0.01, 0, 300, {
+    activeHeads: createBlockingSpawnColumn()
+  });
+
+  assert.equal(manager.activeEvent, null);
+});
+
+test("the navigable-path rule still rejects unfair obstacle layouts", () => {
+  const surferY = midpoint(CONFIG.SURF_BOUNDS.top, CONFIG.SURF_BOUNDS.bottom);
+  const playerX = CONFIG.SURF_BOUNDS.left + (CONFIG.SURF_BOUNDS.right - CONFIG.SURF_BOUNDS.left) * 0.35;
+  const event = fakeEvent([{ x: playerX + 1, y: surferY }], 999);
+
+  assert.equal(isEventFair(event, surferY, event.speed), false);
 });
 
 test("single and double weights stay within requested limits", () => {
@@ -173,11 +294,48 @@ test("event completion permits the next spawn cycle", () => {
   assert.ok(manager.spawnTimer <= CONFIG.SPAWN_DELAY_START.max);
 });
 
+test("normal spawn timer freezes when encounters pause spawns", () => {
+  const manager = new ObstacleManager();
+  manager.spawnTimer = 0.1;
+
+  assert.equal(manager.update(0.2, 10, 300, { pauseSpawns: true }), 0);
+
+  assert.equal(manager.activeEvent, null);
+  assert.equal(manager.spawnTimer, 0.1);
+});
+
+test("encounter obstacles use the shared obstacle collision path", () => {
+  const manager = new ObstacleManager();
+  manager.addObstacle({
+    assetKey: "bottle",
+    x: 500,
+    y: 300,
+    width: 60,
+    height: 30,
+    speed: 100,
+    collisionScale: 0.5
+  });
+
+  assert.deepEqual(manager.hitboxes(), [
+    {
+      x: 485,
+      y: 292.5,
+      width: 30,
+      height: 15
+    }
+  ]);
+});
+
 test("configured spawn delays remain valid", () => {
   assert.ok(CONFIG.SPAWN_DELAY_START.min <= CONFIG.SPAWN_DELAY_START.max);
   assert.ok(CONFIG.SPAWN_DELAY_END.min <= CONFIG.SPAWN_DELAY_END.max);
   assert.ok(spawnDelayForTime(0, () => 0) >= CONFIG.SPAWN_DELAY_START.min);
   assert.ok(spawnDelayForTime(999, () => 1) <= CONFIG.SPAWN_DELAY_END.max);
+});
+
+test("initial spawn-delay range is faster at the beginning of the game", () => {
+  assert.equal(spawnDelayForTime(0, () => 0), 0.8);
+  assert.equal(spawnDelayForTime(0, () => 1), 1.4);
 });
 
 function assertHeadInsideBounds(head) {
@@ -209,4 +367,33 @@ function fakeEvent(heads, speed = CONFIG.OBSTACLE_START_SPEED) {
       counted: false
     }))
   };
+}
+
+function createTestHead(x, y) {
+  return {
+    x,
+    y,
+    width: CONFIG.HEAD_DISPLAY_WIDTH,
+    height: CONFIG.HEAD_DISPLAY_HEIGHT
+  };
+}
+
+function randomYAt(value) {
+  return (
+    CONFIG.SURF_BOUNDS.top +
+    CONFIG.HEAD_DISPLAY_HEIGHT / 2 +
+    (CONFIG.SURF_BOUNDS.bottom - CONFIG.SURF_BOUNDS.top - CONFIG.HEAD_DISPLAY_HEIGHT) * value
+  );
+}
+
+function midpoint(a, b) {
+  return a + (b - a) / 2;
+}
+
+function createBlockingSpawnColumn() {
+  const heads = [];
+  for (let y = CONFIG.SURF_BOUNDS.top; y <= CONFIG.SURF_BOUNDS.bottom; y += 10) {
+    heads.push(createTestHead(CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING, y));
+  }
+  return heads;
 }

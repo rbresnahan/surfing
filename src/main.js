@@ -1,5 +1,7 @@
 import { loadAssets } from "./assets.js";
 import { CONFIG, VERSION } from "./config.js";
+import { AngryFishermanEncounter } from "./angryFishermanEncounter.js";
+import { EncounterManager } from "./encounterManager.js";
 import { Input } from "./input.js";
 import { ObstacleManager } from "./obstacles.js";
 import { rectsOverlap } from "./collision.js";
@@ -19,6 +21,8 @@ const GameState = {
 const input = new Input();
 const surfer = new Surfer();
 const obstacles = new ObstacleManager();
+const encounters = new EncounterManager();
+encounters.register(new AngryFishermanEncounter());
 let assets = null;
 let state = GameState.READY;
 let lastTime = performance.now();
@@ -60,7 +64,11 @@ function update(dt) {
   if (state === GameState.RUNNING) {
     survivalTime += dt;
     surfer.update(dt, input);
-    headsDodged += obstacles.update(dt, survivalTime, surfer.y);
+    const gameState = buildEncounterGameState();
+    encounters.update(dt, gameState);
+    headsDodged += obstacles.update(dt, survivalTime, surfer.y, {
+      pauseSpawns: encounters.shouldPauseNormalSpawns()
+    });
     checkCollision();
   } else if (state === GameState.CRASHED) {
     surfer.updateCrash(dt);
@@ -72,8 +80,10 @@ function startRun() {
   survivalTime = 0;
   headsDodged = 0;
   finalScore = 0;
+  input.reset();
   surfer.reset();
   obstacles.reset();
+  encounters.reset();
 }
 
 function crash() {
@@ -81,6 +91,7 @@ function crash() {
   finalScore = calculateScore(survivalTime, headsDodged);
   records = saveRecords({ survivalTime, headsDodged, score: finalScore });
   obstacles.markCollided();
+  encounters.cleanupActive(buildEncounterGameState());
 }
 
 function checkCollision() {
@@ -105,6 +116,7 @@ function draw() {
   ctx.imageSmoothingEnabled = false;
   drawBackground();
   obstacles.draw(ctx, assets);
+  encounters.render(ctx, buildEncounterGameState());
   surfer.draw(ctx, assets, state === GameState.CRASHED);
 
   if (CONFIG.DEBUG) {
@@ -119,6 +131,16 @@ function draw() {
   } else if (state === GameState.CRASHED) {
     drawCrashOverlay();
   }
+}
+
+function buildEncounterGameState() {
+  return {
+    elapsedSeconds: survivalTime,
+    elapsedMs: survivalTime * 1000,
+    surfer,
+    obstacles,
+    assets
+  };
 }
 
 function drawBackground() {

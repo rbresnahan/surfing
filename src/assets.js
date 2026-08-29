@@ -2,23 +2,29 @@ const ASSET_BASE = "assets/";
 
 const SURFER_FILES = {
   idle: "surfer-idle.png",
+  right: "surfer.png",
   up: "surfer-up.png",
   down: "surfer-down.png",
-  left: "surfer-left.png",
-  right: "surfer-right.png",
-  fall: "surfer-fall.png"
+  left: "surfer-jump.png",
+  fall: "surfer-falling.png"
+};
+
+const THROWABLE_FILES = {
+  bottle: "item-bottle.png",
+  can: "item-beer-can.png",
+  lifeVest: "item-life-jacket.png",
+  lifeRing: "item-life-preserver.png",
+  sandwich: "item-sandwich.png"
 };
 
 export async function loadAssets() {
-  const surfer = await loadRequiredImage(`${ASSET_BASE}surfer.png`);
-  const head = await loadRequiredImage(`${ASSET_BASE}head.png`);
-  const surferStates = {};
-
-  await Promise.all(
-    Object.entries(SURFER_FILES).map(async ([state, file]) => {
-      surferStates[state] = await loadOptionalImage(`${ASSET_BASE}${file}`, surfer);
-    })
-  );
+  const [head, surferStates, fisherman, fishermanThrow, throwables] = await Promise.all([
+    loadRequiredImage(`${ASSET_BASE}head.png`),
+    loadSurferStates(),
+    loadRequiredImage(`${ASSET_BASE}angry-fisherman.png`),
+    loadRequiredImage(`${ASSET_BASE}angry-fisherman-toss.png`),
+    loadThrowables()
+  ]);
 
   const waveFrames = [];
   for (let i = 1; i <= 4; i += 1) {
@@ -27,19 +33,38 @@ export async function loadAssets() {
   }
 
   return {
-    surfer,
+    surfer: surferStates.right,
+    surferFrame: surferStates.right,
     head,
-    surferStates: {
-      idle: surferStates.idle,
-      up: surferStates.up,
-      down: surferStates.down,
-      left: surferStates.left,
-      right: surferStates.right,
-      fall: surferStates.fall
-    },
+    fisherman,
+    fishermanThrow,
+    throwables,
+    surferStates,
     waveFrames,
-    hasFallSprite: surferStates.fall !== surfer
+    hasFallSprite: true
   };
+}
+
+async function loadSurferStates() {
+  const entries = await Promise.all(
+    Object.entries(SURFER_FILES).map(async ([state, file]) => [
+      state,
+      await loadRequiredImage(`${ASSET_BASE}${file}`)
+    ])
+  );
+
+  return Object.fromEntries(entries);
+}
+
+async function loadThrowables() {
+  const entries = await Promise.all(
+    Object.entries(THROWABLE_FILES).map(async ([key, file]) => [
+      key,
+      await loadRequiredImage(`${ASSET_BASE}${file}`)
+    ])
+  );
+
+  return Object.fromEntries(entries);
 }
 
 function loadRequiredImage(src) {

@@ -34,31 +34,33 @@ export class Surfer {
 
   draw(ctx, assets, crashed = false) {
     const image = crashed ? assets.surferStates.fall : assets.surferStates[this.state];
-    const height = CONFIG.SURFER_DISPLAY_HEIGHT;
-    const width = image.width * (height / image.height);
+    const box = this.drawBox(assets);
+    const scale = Math.min(box.width / image.width, box.height / image.height);
+    const width = image.width * scale;
+    const height = image.height * scale;
     const progress = crashed ? this.crashTime / CONFIG.WIPEOUT_SECONDS : 0;
 
     ctx.save();
     ctx.translate(this.x + progress * 26, this.y + progress * 18);
-
-    if (crashed && !assets.hasFallSprite) {
-      ctx.rotate(progress * Math.PI * 0.72);
-      ctx.globalAlpha = Math.max(0.25, 1 - progress * 0.65);
-    }
 
     ctx.drawImage(image, -width / 2, -height / 2, width, height);
     ctx.restore();
   }
 
   hitbox(assets) {
-    const image = assets.surferStates[this.state] ?? assets.surfer;
-    const height = CONFIG.SURFER_DISPLAY_HEIGHT;
-    const width = image.width * (height / image.height);
+    const { width, height } = this.drawBox(assets);
     return centeredRect(
       this.x,
       this.y,
       width * CONFIG.SURFER_HITBOX_SCALE_X,
       height * CONFIG.SURFER_HITBOX_SCALE_Y
     );
+  }
+
+  drawBox(assets) {
+    const frame = assets.surferFrame ?? assets.surferStates.right ?? assets.surfer;
+    const height = CONFIG.SURFER_DISPLAY_HEIGHT;
+    const width = frame.width * (height / frame.height);
+    return { width, height };
   }
 }
