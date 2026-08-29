@@ -1,8 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readdir, readFile } from "node:fs/promises";
 import { CONFIG } from "../src/config.js";
+import { DODGE_OBSTACLE_TYPES, getDodgeObstacleType, selectDodgeObstacleType } from "../src/dodgeObstacles.js";
 import {
   canSpawnNextEvent,
+  createDodgeObstacle,
   createObstacleEvent,
   eventWeightsForTime,
   hasMinimumHeadSeparation,
@@ -15,6 +18,9 @@ import {
   obstacleSpeedForTime,
   spawnDelayForTime
 } from "../src/obstacles.js";
+
+const HEAD_TYPE = getDodgeObstacleType("head");
+const TUBE_TYPE = getDodgeObstacleType("tube");
 
 test("single events always have a valid Y position", () => {
   for (let i = 0; i < 50; i += 1) {
@@ -116,8 +122,8 @@ test("configured minimum visual gap is respected", () => {
 
 test("configured vertical visual gap is respected", () => {
   const head = createTestHead(400, 300);
-  const tooClose = createTestHead(400, 300 + CONFIG.HEAD_DISPLAY_HEIGHT + CONFIG.HEAD_MIN_VISUAL_GAP_Y - 0.1);
-  const clear = createTestHead(400, 300 + CONFIG.HEAD_DISPLAY_HEIGHT + CONFIG.HEAD_MIN_VISUAL_GAP_Y);
+  const tooClose = createTestHead(400, 300 + head.height + head.visualGapY - 0.1);
+  const clear = createTestHead(400, 300 + head.height + head.visualGapY);
 
   assert.equal(hasMinimumHeadSeparation(head, tooClose), false);
   assert.equal(hasMinimumHeadSeparation(head, clear), true);
@@ -217,6 +223,118 @@ test("single and double weights stay within requested limits", () => {
   assert.equal(start.double, 1 - CONFIG.SINGLE_WEIGHT_START);
   assert.equal(end.single, CONFIG.SINGLE_WEIGHT_END);
   assert.ok(end.double <= CONFIG.DOUBLE_WEIGHT_MAX);
+});
+
+test("runtime source does not reference the removed head asset", async () => {
+  const sourceFiles = await sourceFilePaths();
+  const contents = await Promise.all(sourceFiles.map((path) => readFile(path, "utf8")));
+  const removedHeadAsset = "assets/" + "head.png";
+
+  assert.equal(contents.some((content) => content.includes(removedHeadAsset)), false);
+});
+
+test("dodge obstacle registry includes the renamed head and tube assets", () => {
+  assert.deepEqual(
+    DODGE_OBSTACLE_TYPES.map((type) => type.assetKey).sort(),
+    ["dodge-head", "dodge-tube"]
+  );
+  assert.deepEqual(
+    DODGE_OBSTACLE_TYPES.map((type) => type.file).sort(),
+    ["dodge-head.png", "dodge-tube.png"]
+  );
+  assert.equal(DODGE_OBSTACLE_TYPES.every((type) => type.spawnWeight === 1), true);
+});
+
+test("weighted dodge obstacle selection returns only registered types deterministically", () => {
+  assert.equal(selectDodgeObstacleType(() => 0).id, "head");
+  assert.equal(selectDodgeObstacleType(() => 0.49).id, "head");
+  assert.equal(selectDodgeObstacleType(() => 0.5).id, "tube");
+  assert.equal(selectDodgeObstacleType(() => 0.99).id, "tube");
+});
+
+test("ordinary obstacle spawning can deterministically select either registered type", () => {
+  const headEvent = createObstacleEvent({ surferY: 300, elapsed: 0, random: fixedRandom([0.1, 0.5, 0]) });
+  const tubeEvent = createObstacleEvent({ surferY: 300, elapsed: 0, random: fixedRandom([0.1, 0.5, 0.99]) });
+
+  assert.equal(headEvent.heads[0].obstacleTypeId, "head");
+  assert.equal(headEvent.heads[0].assetKey, "dodge-head");
+  assert.equal(tubeEvent.heads[0].obstacleTypeId, "tube");
+  assert.equal(tubeEvent.heads[0].assetKey, "dodge-tube");
+});
+
+test("a spawned obstacle retains its selected type during update, collision, and draw", () => {
+  const manager = new ObstacleManager();
+  manager.activeEvent = fakeEvent([{ x: 500, y: 300, type: TUBE_TYPE }], 100);
+  const obstacle = manager.activeEvent.heads[0];
+  const ctx = new FakeContext();
+
+  manager.update(0.1, 12, 300);
+  const [hitbox] = manager.hitboxes();
+  manager.draw(ctx, {
+    dodgeObstacles: {
+      "dodge-head": image("dodge-head"),
+      "dodge-tube": image("dodge-tube")
+    }
+  });
+
+  assert.equal(obstacle.obstacleTypeId, "tube");
+  assert.equal(obstacle.assetKey, "dodge-tube");
+  assert.equal(hitbox.width, obstacle.collisionWidth * obstacle.hitboxScaleX);
+  assert.equal(ctx.drawnImage.name, "dodge-tube");
+});
+
+test("each dodge obstacle preserves its configured source aspect ratio", () => {
+  const head = createDodgeObstacle(400, 300, Math.random, HEAD_TYPE);
+  const tube = createDodgeObstacle(400, 300, Math.random, TUBE_TYPE);
+
+  assert.equal(head.width / head.height, HEAD_TYPE.render.width / HEAD_TYPE.render.height);
+  assert.equal(tube.width / tube.height, TUBE_TYPE.render.width / TUBE_TYPE.render.height);
+  assert.notEqual(head.width / head.height, tube.width / tube.height);
+});
+
+test("each dodge obstacle type carries its own collision configuration", () => {
+  const head = createDodgeObstacle(400, 300, Math.random, HEAD_TYPE);
+  const tube = createDodgeObstacle(400, 300, Math.random, TUBE_TYPE);
+
+  assert.notDeepEqual(
+    {
+      width: head.collisionWidth,
+      height: head.collisionHeight,
+      scaleX: head.hitboxScaleX,
+      scaleY: head.hitboxScaleY
+    },
+    {
+      width: tube.collisionWidth,
+      height: tube.collisionHeight,
+      scaleX: tube.hitboxScaleX,
+      scaleY: tube.hitboxScaleY
+    }
+  );
+});
+
+test("mixed obstacle groups respect the configured visual gap", () => {
+  const head = createDodgeObstacle(400, 300, Math.random, HEAD_TYPE);
+  const tube = createDodgeObstacle(
+    400 + (head.width + tubeVisualWidth()) / 2 + Math.max(head.visualGapX, TUBE_TYPE.visualGap.x) - 0.1,
+    300,
+    Math.random,
+    TUBE_TYPE
+  );
+  const clearTube = { ...tube, x: tube.x + 0.1 };
+
+  assert.equal(isEventPlacementClear(fakeEventFromObstacles([head, tube])), false);
+  assert.equal(isEventPlacementClear(fakeEventFromObstacles([head, clearTube])), true);
+});
+
+test("mixed groups still reject impossible walls", () => {
+  const surferY = midpoint(CONFIG.SURF_BOUNDS.top, CONFIG.SURF_BOUNDS.bottom);
+  const playerX = CONFIG.SURF_BOUNDS.left + (CONFIG.SURF_BOUNDS.right - CONFIG.SURF_BOUNDS.left) * 0.35;
+  const event = fakeEventFromObstacles([
+    createDodgeObstacle(playerX + 1, surferY - 18, Math.random, HEAD_TYPE),
+    createDodgeObstacle(playerX + 1, surferY + 18, Math.random, TUBE_TYPE)
+  ], 999);
+
+  assert.equal(isEventFair(event, surferY, event.speed), false);
 });
 
 test("obstacle opacity is full before the submerge start", () => {
@@ -358,31 +476,30 @@ function fakeEvent(heads, speed = CONFIG.OBSTACLE_START_SPEED) {
     speed,
     threatening: true,
     collided: false,
-    heads: heads.map((head) => ({
-      x: head.x,
-      y: head.y,
-      width: CONFIG.HEAD_DISPLAY_WIDTH,
-      height: CONFIG.HEAD_DISPLAY_HEIGHT,
-      resolved: false,
-      counted: false
-    }))
+    heads: heads.map((head) => createTestHead(head.x, head.y, head.type ?? HEAD_TYPE))
   };
 }
 
-function createTestHead(x, y) {
+function fakeEventFromObstacles(heads, speed = CONFIG.OBSTACLE_START_SPEED) {
   return {
-    x,
-    y,
-    width: CONFIG.HEAD_DISPLAY_WIDTH,
-    height: CONFIG.HEAD_DISPLAY_HEIGHT
+    type: heads.length === 1 ? "single" : "double",
+    speed,
+    threatening: true,
+    collided: false,
+    heads
   };
+}
+
+function createTestHead(x, y, type = HEAD_TYPE) {
+  return createDodgeObstacle(x, y, Math.random, type);
 }
 
 function randomYAt(value) {
+  const maxHeight = Math.max(...DODGE_OBSTACLE_TYPES.map((type) => type.render.height));
   return (
     CONFIG.SURF_BOUNDS.top +
-    CONFIG.HEAD_DISPLAY_HEIGHT / 2 +
-    (CONFIG.SURF_BOUNDS.bottom - CONFIG.SURF_BOUNDS.top - CONFIG.HEAD_DISPLAY_HEIGHT) * value
+    maxHeight / 2 +
+    (CONFIG.SURF_BOUNDS.bottom - CONFIG.SURF_BOUNDS.top - maxHeight) * value
   );
 }
 
@@ -396,4 +513,46 @@ function createBlockingSpawnColumn() {
     heads.push(createTestHead(CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING, y));
   }
   return heads;
+}
+
+function tubeVisualWidth() {
+  return TUBE_TYPE.render.width;
+}
+
+async function sourceFilePaths() {
+  const dirs = ["src"];
+  const files = [];
+
+  for (const dir of dirs) {
+    const entries = await readdir(new URL(`../${dir}/`, import.meta.url), {
+      recursive: true,
+      withFileTypes: true
+    });
+    for (const entry of entries) {
+      if (entry.isFile() && entry.name.endsWith(".js")) {
+        files.push(new URL(`../${dir}/${entry.name}`, import.meta.url));
+      }
+    }
+  }
+
+  files.push(new URL("../index.html", import.meta.url));
+  return files;
+}
+
+function image(name) {
+  return { name };
+}
+
+class FakeContext {
+  save() {}
+
+  restore() {}
+
+  drawImage(image, x, y, width, height) {
+    this.drawnImage = image;
+    this.drawnX = x;
+    this.drawnY = y;
+    this.drawnWidth = width;
+    this.drawnHeight = height;
+  }
 }

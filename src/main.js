@@ -1,4 +1,5 @@
 import { loadAssets } from "./assets.js";
+import { createBackgroundMusicController } from "./audio.js";
 import { CONFIG, VERSION } from "./config.js";
 import { AngryFishermanEncounter } from "./angryFishermanEncounter.js";
 import { EncounterManager } from "./encounterManager.js";
@@ -33,10 +34,12 @@ let records = loadRecords();
 let waveFrameIndex = 0;
 let waveTimer = 0;
 let waveFrameSeconds = randomWaveFrameSeconds();
+let backgroundMusic = createBackgroundMusicController(null);
 
 loadAssets()
   .then((loaded) => {
     assets = loaded;
+    backgroundMusic = createBackgroundMusicController(assets.backgroundMusic);
     requestAnimationFrame(loop);
   })
   .catch((error) => {
@@ -84,6 +87,7 @@ function startRun() {
   surfer.reset();
   obstacles.reset();
   encounters.reset();
+  backgroundMusic.start();
 }
 
 function crash() {
@@ -96,7 +100,8 @@ function crash() {
 
 function checkCollision() {
   const surferBox = surfer.hitbox(assets);
-  if (obstacles.hitboxes().some((box) => rectsOverlap(surferBox, box))) {
+  const hazardBoxes = [...obstacles.hitboxes(), ...encounters.hitboxes()];
+  if (hazardBoxes.some((box) => rectsOverlap(surferBox, box))) {
     crash();
   }
 }

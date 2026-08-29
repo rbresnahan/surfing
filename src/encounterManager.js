@@ -11,6 +11,13 @@ export class EncounterManager {
   }
 
   reset() {
+    if (this.activeEncounter) {
+      this.activeEncounter.cleanup();
+    }
+    for (const encounter of this.registeredEncounters) {
+      if (encounter === this.activeEncounter) continue;
+      encounter.cleanup?.();
+    }
     this.activeEncounter = null;
     this.completedEncounterIds = new Set();
     this.startedMajorEncounter = false;
@@ -45,6 +52,10 @@ export class EncounterManager {
 
   shouldPauseNormalSpawns() {
     return this.activeEncounter?.pauseNormalSpawns === true;
+  }
+
+  hitboxes() {
+    return this.activeEncounter?.projectileHitboxes?.() ?? [];
   }
 
   cleanupActive(gameState) {

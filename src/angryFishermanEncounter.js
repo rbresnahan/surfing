@@ -1,13 +1,17 @@
 import { CONFIG } from "./config.js";
+import { centeredRect } from "./collision.js";
 
-const State = {
+export const FISHERMAN_STATES = {
   INACTIVE: "INACTIVE",
   ENTERING: "ENTERING",
   MOVING_TO_LANE: "MOVING_TO_LANE",
   WINDUP: "WINDUP",
   THROWING: "THROWING",
+  WALLET_AIRBORNE: "WALLET_AIRBORNE",
   COOLDOWN: "COOLDOWN",
   EXITING: "EXITING",
+  WALLET_LOSS_PAUSE: "WALLET_LOSS_PAUSE",
+  WALLET_LOSS_EXIT: "WALLET_LOSS_EXIT",
   COMPLETE: "COMPLETE"
 };
 
@@ -76,17 +80,38 @@ export const THROWABLES = [
     collisionScale: 0.7,
     speedMultiplier: 1,
     bobAmount: 2
+  }),
+  createThrowable({
+    id: "wallet",
+    airborneAssetKey: "wallet",
+    waterAssetKey: "walletWater",
+    airborneTargetWidth: 58,
+    airborneVisualAspectRatio: 891 / 709,
+    collisionSize: { width: 58, height: 46 },
+    waterTargetWidth: 88,
+    waterVisualAspectRatio: 1391 / 1009,
+    collisionScale: 0.7,
+    speedMultiplier: CONFIG.FISHERMAN_WALLET_SPEED_MULTIPLIER,
+    bobAmount: 2
   })
 ];
 
-const AMMO_SEQUENCE = ["bottle", "can", "sandwich", "life-ring", "bottle", "life-vest"];
+export const WALLET_THROWABLE_ID = "wallet";
+export const ORDINARY_THROW_SEQUENCE = ["bottle", "can", "sandwich", "life-ring", "bottle", "life-vest"];
+
+const WalletState = {
+  WAITING: "WAITING",
+  AIRBORNE: "AIRBORNE",
+  LANDED: "LANDED"
+};
 
 export class AngryFishermanEncounter {
-  constructor() {
+  constructor(random = Math.random) {
     this.id = "angry-fisherman";
     this.type = "major";
     this.exclusive = true;
     this.pauseNormalSpawns = true;
+    this.random = random;
     this.resetInternal();
   }
 
@@ -96,7 +121,8 @@ export class AngryFishermanEncounter {
 
   start() {
     this.resetInternal();
-    this.state = State.ENTERING;
+    this.throwOrder = createThrowOrder(this.random);
+    this.state = FISHERMAN_STATES.ENTERING;
     this.x = CONFIG.WIDTH + this.boatWidth / 2 + 20;
     this.y = CONFIG.FISHERMAN_THROW_LANES[1] ?? midpoint(CONFIG.SURF_BOUNDS.top, CONFIG.SURF_BOUNDS.bottom);
   }
@@ -104,7 +130,7 @@ export class AngryFishermanEncounter {
   update(dt, gameState) {
     this.projectiles = this.projectiles.filter((projectile) => updateProjectile(projectile, dt, gameState));
 
-    if (this.state === State.ENTERING) {
+    if (this.state === FISHERMAN_STATES.ENTERING) {
       this.x = Math.max(CONFIG.FISHERMAN_STOP_X, this.x - CONFIG.FISHERMAN_ENTRY_SPEED * dt);
       if (this.x === CONFIG.FISHERMAN_STOP_X) {
         this.chooseNextLane();
@@ -112,12 +138,12 @@ export class AngryFishermanEncounter {
       return;
     }
 
-    if (this.state === State.MOVING_TO_LANE) {
+    if (this.state === FISHERMAN_STATES.MOVING_TO_LANE) {
       this.moveTowardTargetLane(dt);
       return;
     }
 
-    if (this.state === State.WINDUP) {
+    if (this.state === FISHERMAN_STATES.WINDUP) {
       this.timer -= dt;
       if (this.timer <= 0) {
         this.throwNextItem();
@@ -125,20 +151,26 @@ export class AngryFishermanEncounter {
       return;
     }
 
-    if (this.state === State.THROWING) {
+    if (this.state === FISHERMAN_STATES.THROWING) {
       this.timer -= dt;
       if (this.timer <= 0) {
-        if (this.ammoIndex >= AMMO_SEQUENCE.length) {
-          this.state = State.EXITING;
+        if (this.ammoIndex >= this.throwOrder.length) {
+          this.state = this.walletState === WalletState.AIRBORNE
+            ? FISHERMAN_STATES.WALLET_AIRBORNE
+            : FISHERMAN_STATES.EXITING;
         } else {
           this.timer = randomThrowIntervalSeconds();
-          this.state = State.COOLDOWN;
+          this.state = FISHERMAN_STATES.COOLDOWN;
         }
       }
       return;
     }
 
-    if (this.state === State.COOLDOWN) {
+    if (this.state === FISHERMAN_STATES.WALLET_AIRBORNE) {
+      return;
+    }
+
+    if (this.state === FISHERMAN_STATES.COOLDOWN) {
       this.timer -= dt;
       if (this.timer <= 0) {
         this.chooseNextLane();
@@ -146,46 +178,77 @@ export class AngryFishermanEncounter {
       return;
     }
 
-    if (this.state === State.EXITING) {
-      this.x += CONFIG.FISHERMAN_EXIT_SPEED * dt;
+    if (this.state === FISHERMAN_STATES.WALLET_LOSS_PAUSE) {
+      if (this.walletLandedThisFrame) {
+        this.walletLandedThisFrame = false;
+        return;
+      }
+
+      this.timer -= dt;
+      if (this.timer <= 0) {
+        this.timer = 0;
+        this.state = FISHERMAN_STATES.WALLET_LOSS_EXIT;
+      }
+      return;
+    }
+
+    if (this.state === FISHERMAN_STATES.EXITING || this.state === FISHERMAN_STATES.WALLET_LOSS_EXIT) {
+      const exitSpeed = this.state === FISHERMAN_STATES.WALLET_LOSS_EXIT
+        ? CONFIG.FISHERMAN_WALLET_LOSS_EXIT_SPEED
+        : CONFIG.FISHERMAN_EXIT_SPEED;
+      this.x += exitSpeed * dt;
       if (this.x - this.boatWidth / 2 > CONFIG.WIDTH && this.projectiles.length === 0) {
-        this.state = State.COMPLETE;
+        this.state = FISHERMAN_STATES.COMPLETE;
       }
     }
   }
 
   render(ctx, gameState) {
-    if (this.state === State.INACTIVE || this.state === State.COMPLETE) return;
+    if (this.state === FISHERMAN_STATES.INACTIVE || this.state === FISHERMAN_STATES.COMPLETE) return;
 
     for (const projectile of this.projectiles) {
       drawProjectile(ctx, projectile, gameState.assets);
     }
 
-    const image = this.state === State.THROWING ? gameState.assets.fishermanThrow : gameState.assets.fisherman;
+    const image = this.lossSpriteActive
+      ? gameState.assets.angryFishermanLoss
+      : this.state === FISHERMAN_STATES.THROWING || this.state === FISHERMAN_STATES.WALLET_AIRBORNE
+        ? gameState.assets.angryFishermanToss
+        : gameState.assets.angryFisherman;
     if (!image) return;
 
-    const height = image.height * (this.boatWidth / image.width);
+    const boundsImage = gameState.assets.angryFisherman ?? image;
+    const height = boundsImage.height * (this.boatWidth / boundsImage.width);
     ctx.save();
     ctx.drawImage(image, this.x - this.boatWidth / 2, this.y - height / 2, this.boatWidth, height);
     ctx.restore();
   }
 
   isComplete() {
-    return this.state === State.COMPLETE;
+    return this.state === FISHERMAN_STATES.COMPLETE;
   }
 
   cleanup() {
     this.resetInternal();
   }
 
+  projectileHitboxes() {
+    return this.projectiles.map(projectileHitbox);
+  }
+
   resetInternal() {
-    this.state = State.INACTIVE;
+    this.state = FISHERMAN_STATES.INACTIVE;
     this.x = CONFIG.WIDTH;
     this.y = CONFIG.SURF_BOUNDS.top;
     this.targetLane = this.y;
     this.lastLane = null;
     this.timer = 0;
     this.ammoIndex = 0;
+    this.throwOrder = [];
+    this.walletState = WalletState.WAITING;
+    this.walletLandingHandled = false;
+    this.walletLandedThisFrame = false;
+    this.lossSpriteActive = false;
     this.projectiles = [];
     this.boatWidth = CONFIG.FISHERMAN_DISPLAY_WIDTH;
   }
@@ -194,7 +257,7 @@ export class AngryFishermanEncounter {
     const lane = chooseLane(CONFIG.FISHERMAN_THROW_LANES, this.lastLane);
     this.lastLane = lane;
     this.targetLane = lane;
-    this.state = State.MOVING_TO_LANE;
+    this.state = FISHERMAN_STATES.MOVING_TO_LANE;
   }
 
   moveTowardTargetLane(dt) {
@@ -203,7 +266,7 @@ export class AngryFishermanEncounter {
     if (Math.abs(delta) <= Math.max(step, CONFIG.FISHERMAN_LANE_SNAP_DISTANCE)) {
       this.y = this.targetLane;
       this.timer = CONFIG.FISHERMAN_THROW_WINDUP_MS / 1000;
-      this.state = State.WINDUP;
+      this.state = FISHERMAN_STATES.WINDUP;
       return;
     }
 
@@ -211,15 +274,35 @@ export class AngryFishermanEncounter {
   }
 
   throwNextItem() {
-    const item = throwableById(AMMO_SEQUENCE[this.ammoIndex]);
+    const item = throwableById(this.throwOrder[this.ammoIndex]);
     this.ammoIndex += 1;
-    this.projectiles.push(createProjectile(item, this.x, this.y));
+    const projectile = createProjectile(item, this.x, this.y, {
+      onLanded: item.id === WALLET_THROWABLE_ID ? () => this.handleWalletLanded() : null
+    });
+    if (item.id === WALLET_THROWABLE_ID) {
+      this.walletState = WalletState.AIRBORNE;
+    }
+    this.projectiles.push(projectile);
     this.timer = CONFIG.FISHERMAN_POST_THROW_DELAY_MS / 1000;
-    this.state = State.THROWING;
+    this.state = FISHERMAN_STATES.THROWING;
+  }
+
+  handleWalletLanded() {
+    if (this.walletLandingHandled) return;
+    this.walletLandingHandled = true;
+    this.walletState = WalletState.LANDED;
+    this.walletLandedThisFrame = true;
+    this.lossSpriteActive = true;
+    this.timer = CONFIG.FISHERMAN_WALLET_LOSS_PAUSE_SECONDS;
+    this.state = FISHERMAN_STATES.WALLET_LOSS_PAUSE;
   }
 }
 
-export function createProjectile(item, boatX, boatY) {
+export function createThrowOrder(random = Math.random) {
+  return [...shuffle(ORDINARY_THROW_SEQUENCE, random), WALLET_THROWABLE_ID];
+}
+
+export function createProjectile(item, boatX, boatY, options = {}) {
   const startX = boatX - 90;
   const startY = boatY - 32;
   const landingX = CONFIG.OBSTACLE_SUBMERGE_START_X + 290;
@@ -228,12 +311,13 @@ export function createProjectile(item, boatX, boatY) {
   return {
     item,
     age: 0,
-    duration: CONFIG.FISHERMAN_PROJECTILE_DURATION_MS / 1000,
+    duration: projectileDurationSeconds(item),
     startX,
     startY,
     landingX,
     landingY,
-    impacted: false
+    impacted: false,
+    onLanded: options.onLanded ?? null
   };
 }
 
@@ -263,7 +347,19 @@ export function updateProjectile(projectile, dt, gameState) {
     collisionScale: projectile.item.collisionScale,
     bobAmount: projectile.item.bobAmount
   });
+  projectile.onLanded?.(projectile);
   return false;
+}
+
+export function projectileHitbox(projectile) {
+  const progress = Math.min(1, projectile.age / projectile.duration);
+  const { x, y } = projectilePosition(projectile, progress);
+  return centeredRect(
+    x,
+    y,
+    projectile.item.collisionWidth * projectile.item.collisionScale,
+    projectile.item.collisionHeight * projectile.item.collisionScale
+  );
 }
 
 export function drawProjectile(ctx, projectile, assets) {
@@ -307,6 +403,11 @@ export function projectilePosition(projectile, progress) {
     Math.sin(progress * Math.PI) * CONFIG.FISHERMAN_PROJECTILE_ARC_HEIGHT;
 
   return { x, y };
+}
+
+export function projectileDurationSeconds(item) {
+  const normalDuration = CONFIG.FISHERMAN_PROJECTILE_DURATION_MS / 1000;
+  return item.id === WALLET_THROWABLE_ID ? normalDuration / item.speedMultiplier : normalDuration;
 }
 
 function chooseLane(lanes, previousLane) {
@@ -359,6 +460,15 @@ function randomThrowIntervalSeconds() {
     CONFIG.FISHERMAN_THROW_INTERVAL_MIN_MS +
     Math.random() * (CONFIG.FISHERMAN_THROW_INTERVAL_MAX_MS - CONFIG.FISHERMAN_THROW_INTERVAL_MIN_MS)
   ) / 1000;
+}
+
+function shuffle(items, random) {
+  const result = [...items];
+  for (let i = result.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
 }
 
 function midpoint(a, b) {

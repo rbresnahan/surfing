@@ -1,4 +1,7 @@
+import { DODGE_OBSTACLE_TYPES } from "./dodgeObstacles.js";
+
 const ASSET_BASE = "assets/";
+const AUDIO_BASE = `${ASSET_BASE}audio/`;
 
 const SURFER_FILES = {
   idle: "surfer-idle.png",
@@ -7,6 +10,12 @@ const SURFER_FILES = {
   down: "surfer-down.png",
   left: "surfer-jump.png",
   fall: "surfer-falling.png"
+};
+
+export const FISHERMAN_FILES = {
+  angryFisherman: "angry-fisherman.png",
+  angryFishermanToss: "angry-fisherman-toss.png",
+  angryFishermanLoss: "angry-fisherman-loss.png"
 };
 
 export const THROWABLE_FILES = {
@@ -19,16 +28,32 @@ export const THROWABLE_FILES = {
   lifeRing: "item-life-preserver.png",
   lifeRingWater: "item-life-preserver-water.png",
   sandwich: "item-sandwich.png",
-  sandwichWater: "item-sandwich-water.png"
+  sandwichWater: "item-sandwich-water.png",
+  wallet: "item-wallet.png",
+  walletWater: "item-wallet-water.png"
+};
+
+export const AUDIO_FILES = {
+  backgroundMusic: "sunset-circuit.mp3"
 };
 
 export async function loadAssets() {
-  const [head, surferStates, fisherman, fishermanThrow, throwables] = await Promise.all([
-    loadRequiredImage(`${ASSET_BASE}head.png`),
+  const [
+    dodgeObstacles,
+    surferStates,
+    angryFisherman,
+    angryFishermanToss,
+    angryFishermanLoss,
+    throwables,
+    backgroundMusic
+  ] = await Promise.all([
+    loadDodgeObstacles(),
     loadSurferStates(),
-    loadRequiredImage(`${ASSET_BASE}angry-fisherman.png`),
-    loadRequiredImage(`${ASSET_BASE}angry-fisherman-toss.png`),
-    loadThrowables()
+    loadRequiredImage(`${ASSET_BASE}${FISHERMAN_FILES.angryFisherman}`),
+    loadRequiredImage(`${ASSET_BASE}${FISHERMAN_FILES.angryFishermanToss}`),
+    loadRequiredImage(`${ASSET_BASE}${FISHERMAN_FILES.angryFishermanLoss}`),
+    loadThrowables(),
+    loadAudio(`${AUDIO_BASE}${AUDIO_FILES.backgroundMusic}`)
   ]);
 
   const waveFrames = [];
@@ -40,14 +65,27 @@ export async function loadAssets() {
   return {
     surfer: surferStates.right,
     surferFrame: surferStates.right,
-    head,
-    fisherman,
-    fishermanThrow,
+    dodgeObstacles,
+    angryFisherman,
+    angryFishermanToss,
+    angryFishermanLoss,
     throwables,
+    backgroundMusic,
     surferStates,
     waveFrames,
     hasFallSprite: true
   };
+}
+
+async function loadDodgeObstacles() {
+  const entries = await Promise.all(
+    DODGE_OBSTACLE_TYPES.map(async (type) => [
+      type.assetKey,
+      await loadRequiredImage(`${ASSET_BASE}${type.file}`)
+    ])
+  );
+
+  return Object.fromEntries(entries);
 }
 
 async function loadSurferStates() {
@@ -79,6 +117,14 @@ function loadRequiredImage(src) {
     image.onerror = () => reject(new Error(`Missing required asset: ${src}`));
     image.src = src;
   });
+}
+
+function loadAudio(src) {
+  if (typeof Audio !== "function") return null;
+
+  const audio = new Audio(src);
+  audio.preload = "auto";
+  return audio;
 }
 
 async function loadOptionalImage(src, fallback = null) {

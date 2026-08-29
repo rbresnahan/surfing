@@ -1,5 +1,6 @@
 import { CONFIG } from "./config.js";
 import { centeredRect, rectsOverlap } from "./collision.js";
+import { DODGE_OBSTACLE_TYPES, selectDodgeObstacleType } from "./dodgeObstacles.js";
 
 export function obstacleSpeedForTime(seconds) {
   const t = Math.max(0, Math.min(1, seconds / CONFIG.DIFFICULTY_RAMP_SECONDS));
@@ -154,7 +155,8 @@ export class ObstacleManager {
       this.activeEvent = createObstacleEvent({
         surferY,
         elapsed,
-        activeHeads: options.activeHeads ?? this.activeHeads()
+        activeHeads: options.activeHeads ?? this.activeHeads(),
+        random: options.random ?? Math.random
       });
       if (!this.activeEvent) {
         this.spawnTimer = spawnDelayForTime(elapsed);
@@ -203,7 +205,7 @@ export class ObstacleManager {
   draw(ctx, assets) {
     if (this.activeEvent) {
       for (const head of this.activeEvent.heads) {
-        drawObstacle(ctx, assets.head, head);
+        drawObstacle(ctx, obstacleImage(assets, head), head);
       }
     }
 
@@ -217,7 +219,12 @@ export class ObstacleManager {
       ? this.activeEvent.heads
         .filter((head) => !head.resolved && obstacleOpacityForX(head.x) > 0)
         .map((head) =>
-          centeredRect(head.x, head.y, head.width * CONFIG.HEAD_HITBOX_SCALE_X, head.height * CONFIG.HEAD_HITBOX_SCALE_Y)
+          centeredRect(
+            head.x,
+            head.y,
+            head.collisionWidth * head.hitboxScaleX,
+            head.collisionHeight * head.hitboxScaleY
+          )
         )
       : [];
 
@@ -289,8 +296,9 @@ function drawObstacle(ctx, image, obstacle) {
 }
 
 function obstacleImage(assets, obstacle) {
-  if (!obstacle.assetKey) return assets.head;
-  return assets.throwables?.[obstacle.assetKey] ?? assets[obstacle.assetKey] ?? assets.head;
+  const fallback = assets.dodgeObstacles?.[DODGE_OBSTACLE_TYPES[0].assetKey];
+  if (!obstacle.assetKey) return fallback;
+  return assets.dodgeObstacles?.[obstacle.assetKey] ?? assets.throwables?.[obstacle.assetKey] ?? assets[obstacle.assetKey] ?? fallback;
 }
 
 function createSingle(spawnX, speed, random) {
@@ -299,7 +307,7 @@ function createSingle(spawnX, speed, random) {
     speed,
     threatening: true,
     collided: false,
-    heads: [createHead(spawnX, randomY(random))]
+    heads: [createDodgeObstacle(spawnX, randomY(random), random)]
   };
 }
 
@@ -317,18 +325,30 @@ function createDouble(spawnX, speed, random) {
     threatening: true,
     collided: false,
     heads: [
-      createHead(spawnX, yA),
-      createHead(spawnX + offset, yB)
+      createDodgeObstacle(spawnX, yA, random),
+      createDodgeObstacle(spawnX + offset, yB, random)
     ]
   };
 }
 
-function createHead(x, y) {
+export function createDodgeObstacle(x, y, random = Math.random, type = selectDodgeObstacleType(random)) {
   return {
+    type: "dodge",
+    obstacleTypeId: type.id,
+    assetKey: type.assetKey,
     x,
     y,
-    width: CONFIG.HEAD_DISPLAY_WIDTH,
-    height: CONFIG.HEAD_DISPLAY_HEIGHT,
+    width: type.render.width,
+    height: type.render.height,
+    collisionWidth: type.hitbox.width,
+    collisionHeight: type.hitbox.height,
+    hitboxScaleX: type.hitbox.scaleX,
+    hitboxScaleY: type.hitbox.scaleY,
+    visualGapX: type.visualGap.x,
+    visualGapY: type.visualGap.y,
+    renderAnchor: type.render.anchor,
+    renderOffsetX: type.render.offsetX,
+    renderOffsetY: type.render.offsetY,
     resolved: false,
     counted: false
   };
@@ -338,15 +358,16 @@ function expandedRenderBounds(head) {
   return centeredRect(
     head.x,
     head.y,
-    head.width + CONFIG.HEAD_MIN_VISUAL_GAP_X,
-    head.height + CONFIG.HEAD_MIN_VISUAL_GAP_Y
+    head.width + (head.visualGapX ?? CONFIG.HEAD_MIN_VISUAL_GAP_X),
+    head.height + (head.visualGapY ?? CONFIG.HEAD_MIN_VISUAL_GAP_Y)
   );
 }
 
 function randomY(random) {
+  const maxHeight = Math.max(...DODGE_OBSTACLE_TYPES.map((type) => type.render.height));
   return randomBetween(
-    CONFIG.SURF_BOUNDS.top + CONFIG.HEAD_DISPLAY_HEIGHT / 2,
-    CONFIG.SURF_BOUNDS.bottom - CONFIG.HEAD_DISPLAY_HEIGHT / 2,
+    CONFIG.SURF_BOUNDS.top + maxHeight / 2,
+    CONFIG.SURF_BOUNDS.bottom - maxHeight / 2,
     random
   );
 }
@@ -361,7 +382,7 @@ function isHeadInsidePlayableY(head) {
 function buildSafeIntervals(heads, surferHalf) {
   const blocked = heads
     .map((head) => {
-      const obstacleHalf = (head.height * CONFIG.HEAD_HITBOX_SCALE_Y) / 2;
+      const obstacleHalf = (head.collisionHeight * head.hitboxScaleY) / 2;
       return [head.y - obstacleHalf - surferHalf, head.y + obstacleHalf + surferHalf];
     })
     .sort((a, b) => a[0] - b[0]);
@@ -387,9 +408,10 @@ function buildSafeIntervals(heads, surferHalf) {
 }
 
 function clampY(y) {
+  const maxHeight = Math.max(...DODGE_OBSTACLE_TYPES.map((type) => type.render.height));
   return Math.max(
-    CONFIG.SURF_BOUNDS.top + CONFIG.HEAD_DISPLAY_HEIGHT / 2,
-    Math.min(CONFIG.SURF_BOUNDS.bottom - CONFIG.HEAD_DISPLAY_HEIGHT / 2, y)
+    CONFIG.SURF_BOUNDS.top + maxHeight / 2,
+    Math.min(CONFIG.SURF_BOUNDS.bottom - maxHeight / 2, y)
   );
 }
 
