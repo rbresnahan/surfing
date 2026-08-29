@@ -1,4 +1,4 @@
-export const VERSION = "v0.1.3";
+export const VERSION = "v0.1.5";
 
 export const CONFIG = {
   DEBUG: false,
@@ -62,5 +62,5 @@ export const CONFIG = {
   WIPEOUT_SECONDS: 1,
   SCORE_TIME_MULTIPLIER: 100,
   SCORE_DODGE_VALUE: 500,
-  STORAGE_KEY: "surf-game-v0.1.3-records"
+  STORAGE_KEY: "surf-game-v0.1.5-records"
 };

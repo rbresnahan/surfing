@@ -9,12 +9,17 @@ const SURFER_FILES = {
   fall: "surfer-falling.png"
 };
 
-const THROWABLE_FILES = {
+export const THROWABLE_FILES = {
   bottle: "item-bottle.png",
+  bottleWater: "item-bottle-water.png",
   can: "item-beer-can.png",
+  canWater: "item-beer-can-water.png",
   lifeVest: "item-life-jacket.png",
+  lifeVestWater: "item-life-jacket-water.png",
   lifeRing: "item-life-preserver.png",
-  sandwich: "item-sandwich.png"
+  lifeRingWater: "item-life-preserver-water.png",
+  sandwich: "item-sandwich.png",
+  sandwichWater: "item-sandwich-water.png"
 };
 
 export async function loadAssets() {

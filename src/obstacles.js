@@ -184,6 +184,11 @@ export class ObstacleManager {
       y: obstacle.y,
       width: obstacle.width,
       height: obstacle.height,
+      collisionWidth: obstacle.collisionWidth ?? obstacle.width,
+      collisionHeight: obstacle.collisionHeight ?? obstacle.height,
+      renderAnchor: obstacle.renderAnchor ?? { x: 0.5, y: 0.5 },
+      renderOffsetX: obstacle.renderOffsetX ?? 0,
+      renderOffsetY: obstacle.renderOffsetY ?? 0,
       speed: obstacle.speed,
       hitboxScaleX: obstacle.hitboxScaleX ?? obstacle.collisionScale ?? CONFIG.HEAD_HITBOX_SCALE_X,
       hitboxScaleY: obstacle.hitboxScaleY ?? obstacle.collisionScale ?? CONFIG.HEAD_HITBOX_SCALE_Y,
@@ -222,8 +227,8 @@ export class ObstacleManager {
         centeredRect(
           obstacle.x,
           obstacle.y,
-          obstacle.width * obstacle.hitboxScaleX,
-          obstacle.height * obstacle.hitboxScaleY
+          obstacle.collisionWidth * obstacle.hitboxScaleX,
+          obstacle.collisionHeight * obstacle.hitboxScaleY
         )
       );
 
@@ -263,6 +268,9 @@ function updateObstacles(obstacles, dt, eventSpeed = null) {
 function drawObstacle(ctx, image, obstacle) {
   const opacity = obstacleOpacityForX(obstacle.x);
   if (!image || opacity <= 0) return;
+  const anchor = obstacle.renderAnchor ?? { x: 0.5, y: 0.5 };
+  const offsetX = obstacle.renderOffsetX ?? 0;
+  const offsetY = obstacle.renderOffsetY ?? 0;
 
   const bob = obstacle.bobAmount
     ? Math.sin((obstacle.age ?? 0) * obstacle.bobSpeed + obstacle.bobOffset) * obstacle.bobAmount
@@ -272,8 +280,8 @@ function drawObstacle(ctx, image, obstacle) {
   ctx.globalAlpha = opacity;
   ctx.drawImage(
     image,
-    obstacle.x - obstacle.width / 2,
-    obstacle.y - obstacle.height / 2 + obstacleSinkForX(obstacle.x) + bob,
+    obstacle.x + offsetX - obstacle.width * anchor.x,
+    obstacle.y + offsetY - obstacle.height * anchor.y + obstacleSinkForX(obstacle.x) + bob,
     obstacle.width,
     obstacle.height
   );

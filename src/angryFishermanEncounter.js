@@ -11,12 +11,72 @@ const State = {
   COMPLETE: "COMPLETE"
 };
 
-const THROWABLES = [
-  { id: "bottle", assetKey: "bottle", width: 62, height: 30, collisionScale: 0.68, speedMultiplier: 1.03, bobAmount: 2 },
-  { id: "can", assetKey: "can", width: 42, height: 32, collisionScale: 0.7, speedMultiplier: 1.08, bobAmount: 2 },
-  { id: "life-vest", assetKey: "lifeVest", width: 72, height: 54, collisionScale: 0.72, speedMultiplier: 0.92, bobAmount: 3 },
-  { id: "life-ring", assetKey: "lifeRing", width: 76, height: 58, collisionScale: 0.72, speedMultiplier: 0.9, bobAmount: 3 },
-  { id: "sandwich", assetKey: "sandwich", width: 54, height: 38, collisionScale: 0.7, speedMultiplier: 1, bobAmount: 2 }
+export const THROWABLES = [
+  createThrowable({
+    id: "bottle",
+    airborneAssetKey: "bottle",
+    waterAssetKey: "bottleWater",
+    airborneTargetWidth: 62,
+    airborneVisualAspectRatio: 1220 / 1138,
+    collisionSize: { width: 62, height: 30 },
+    waterTargetWidth: 92,
+    waterVisualAspectRatio: 1240 / 1251,
+    collisionScale: 0.68,
+    speedMultiplier: 1.03,
+    bobAmount: 2
+  }),
+  createThrowable({
+    id: "can",
+    airborneAssetKey: "can",
+    waterAssetKey: "canWater",
+    airborneTargetWidth: 42,
+    airborneVisualAspectRatio: 1066 / 994,
+    collisionSize: { width: 42, height: 32 },
+    waterTargetWidth: 72,
+    waterVisualAspectRatio: 1239 / 1167,
+    collisionScale: 0.7,
+    speedMultiplier: 1.08,
+    bobAmount: 2
+  }),
+  createThrowable({
+    id: "life-vest",
+    airborneAssetKey: "lifeVest",
+    waterAssetKey: "lifeVestWater",
+    airborneTargetWidth: 72,
+    airborneVisualAspectRatio: 1343 / 1140,
+    collisionSize: { width: 72, height: 54 },
+    waterTargetWidth: 104,
+    waterVisualAspectRatio: 1516 / 975,
+    collisionScale: 0.72,
+    speedMultiplier: 0.92,
+    bobAmount: 3
+  }),
+  createThrowable({
+    id: "life-ring",
+    airborneAssetKey: "lifeRing",
+    waterAssetKey: "lifeRingWater",
+    airborneTargetWidth: 76,
+    airborneVisualAspectRatio: 1031 / 1192,
+    collisionSize: { width: 76, height: 58 },
+    waterTargetWidth: 108,
+    waterVisualAspectRatio: 1471 / 1011,
+    collisionScale: 0.72,
+    speedMultiplier: 0.9,
+    bobAmount: 3
+  }),
+  createThrowable({
+    id: "sandwich",
+    airborneAssetKey: "sandwich",
+    waterAssetKey: "sandwichWater",
+    airborneTargetWidth: 54,
+    airborneVisualAspectRatio: 1090 / 1087,
+    collisionSize: { width: 54, height: 38 },
+    waterTargetWidth: 84,
+    waterVisualAspectRatio: 1254 / 1226,
+    collisionScale: 0.7,
+    speedMultiplier: 1,
+    bobAmount: 2
+  })
 ];
 
 const AMMO_SEQUENCE = ["bottle", "can", "sandwich", "life-ring", "bottle", "life-vest"];
@@ -159,7 +219,7 @@ export class AngryFishermanEncounter {
   }
 }
 
-function createProjectile(item, boatX, boatY) {
+export function createProjectile(item, boatX, boatY) {
   const startX = boatX - 90;
   const startY = boatY - 32;
   const landingX = CONFIG.OBSTACLE_SUBMERGE_START_X + 290;
@@ -172,22 +232,33 @@ function createProjectile(item, boatX, boatY) {
     startX,
     startY,
     landingX,
-    landingY
+    landingY,
+    impacted: false
   };
 }
 
-function updateProjectile(projectile, dt, gameState) {
+export function updateProjectile(projectile, dt, gameState) {
+  if (projectile.impacted) return false;
+
   projectile.age += dt;
   const progress = Math.min(1, projectile.age / projectile.duration);
 
   if (progress < 1) return true;
 
+  const { width, height } = waterRenderSize(projectile.item);
+
+  projectile.impacted = true;
   gameState.obstacles.addObstacle({
-    assetKey: projectile.item.assetKey,
+    assetKey: projectile.item.waterAssetKey,
     x: projectile.landingX,
     y: projectile.landingY,
-    width: projectile.item.width,
-    height: projectile.item.height,
+    width,
+    height,
+    collisionWidth: projectile.item.collisionWidth,
+    collisionHeight: projectile.item.collisionHeight,
+    renderAnchor: projectile.item.waterAnchor,
+    renderOffsetX: projectile.item.impactOffset.x,
+    renderOffsetY: projectile.item.impactOffset.y,
     speed: CONFIG.FISHERMAN_THROWABLE_SPEED * projectile.item.speedMultiplier,
     collisionScale: projectile.item.collisionScale,
     bobAmount: projectile.item.bobAmount
@@ -195,19 +266,47 @@ function updateProjectile(projectile, dt, gameState) {
   return false;
 }
 
-function drawProjectile(ctx, projectile, assets) {
-  const image = assets.throwables?.[projectile.item.assetKey];
+export function drawProjectile(ctx, projectile, assets) {
+  const image = assets.throwables?.[projectile.item.airborneAssetKey];
   if (!image) return;
 
   const progress = Math.min(1, projectile.age / projectile.duration);
-  const x = lerp(projectile.startX, projectile.landingX, progress);
-  const y = lerp(projectile.startY, projectile.landingY, progress) - Math.sin(progress * Math.PI) * CONFIG.FISHERMAN_PROJECTILE_ARC_HEIGHT;
+  const { x, y } = projectilePosition(projectile, progress);
+  const { width, height } = airborneRenderSize(projectile.item);
 
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(-0.5 + progress * 1.3);
-  ctx.drawImage(image, -projectile.item.width / 2, -projectile.item.height / 2, projectile.item.width, projectile.item.height);
+  ctx.drawImage(
+    image,
+    -width * projectile.item.airborneAnchor.x,
+    -height * projectile.item.airborneAnchor.y,
+    width,
+    height
+  );
   ctx.restore();
+}
+
+export function airborneRenderSize(item) {
+  return {
+    width: item.airborneTargetWidth,
+    height: item.airborneTargetWidth * item.airborneVisualAspectRatio
+  };
+}
+
+export function waterRenderSize(item) {
+  return {
+    width: item.waterTargetWidth,
+    height: item.waterTargetWidth / item.waterVisualAspectRatio
+  };
+}
+
+export function projectilePosition(projectile, progress) {
+  const x = lerp(projectile.startX, projectile.landingX, progress);
+  const y = lerp(projectile.startY, projectile.landingY, progress) -
+    Math.sin(progress * Math.PI) * CONFIG.FISHERMAN_PROJECTILE_ARC_HEIGHT;
+
+  return { x, y };
 }
 
 function chooseLane(lanes, previousLane) {
@@ -216,8 +315,43 @@ function chooseLane(lanes, previousLane) {
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
-function throwableById(id) {
+export function throwableById(id) {
   return THROWABLES.find((item) => item.id === id) ?? THROWABLES[0];
+}
+
+function createThrowable({
+  id,
+  airborneAssetKey,
+  waterAssetKey,
+  airborneTargetWidth,
+  airborneVisualAspectRatio,
+  collisionSize,
+  waterTargetWidth,
+  waterVisualAspectRatio,
+  collisionScale,
+  speedMultiplier,
+  bobAmount,
+  airborneAnchor = { x: 0.5, y: 0.5 },
+  waterAnchor = { x: 0.5, y: 0.56 },
+  impactOffset = { x: 0, y: 0 }
+}) {
+  return {
+    id,
+    airborneAssetKey,
+    waterAssetKey,
+    airborneTargetWidth,
+    airborneVisualAspectRatio,
+    waterTargetWidth,
+    waterVisualAspectRatio,
+    collisionWidth: collisionSize.width,
+    collisionHeight: collisionSize.height,
+    airborneAnchor,
+    waterAnchor,
+    impactOffset,
+    collisionScale,
+    speedMultiplier,
+    bobAmount
+  };
 }
 
 function randomThrowIntervalSeconds() {
