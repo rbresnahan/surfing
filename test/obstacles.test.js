@@ -2,7 +2,15 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
 import { CONFIG } from "../src/config.js";
-import { DODGE_OBSTACLE_TYPES, getDodgeObstacleType, selectDodgeObstacleType } from "../src/dodgeObstacles.js";
+import {
+  DODGE_OBSTACLE_RENDER_SCALE,
+  DODGE_OBSTACLE_TYPES,
+  getDodgeObstacleType,
+  selectDodgeObstacleType
+} from "../src/dodgeObstacles.js";
+import { OBSTACLE_PATTERNS, PATTERN_BY_ID, instantiatePattern } from "../src/obstaclePatterns.js";
+import { obstacleRowCenter, obstacleRowCenters } from "../src/rowGeometry.js";
+import { validateObstacleTimeline, validatePatternSequence } from "../src/patternValidator.js";
 import {
   canSpawnNextEvent,
   createDodgeObstacle,
@@ -25,6 +33,14 @@ const NOODLE_MAN_TYPE = getDodgeObstacleType("noodle-man");
 const SCUBA_MAN_TYPE = getDodgeObstacleType("scuba-man");
 const TUBE_GIRL_TYPE = getDodgeObstacleType("tube-girl");
 const TUBE_WOMAN_TYPE = getDodgeObstacleType("tube-woman");
+const DODGE_BASE_RENDER_SIZES = {
+  head: { width: 70, height: 70 / (1448 / 1086) },
+  "noodle-girl": { width: 88, height: 88 / (1448 / 1086) },
+  "noodle-man": { width: 96, height: 96 / (1672 / 941) },
+  "scuba-man": { width: 86, height: 86 / (1536 / 1024) },
+  "tube-girl": { width: 78 * (1254 / 1254), height: 78 },
+  "tube-woman": { width: 92, height: 92 / (1536 / 1024) }
+};
 
 test("single events always have a valid Y position", () => {
   for (let i = 0; i < 50; i += 1) {
@@ -117,8 +133,8 @@ test("a head cannot spawn with rendered bounds overlapping an active head", () =
 
 test("configured minimum visual gap is respected", () => {
   const head = createTestHead(400, 300);
-  const tooClose = createTestHead(400 + CONFIG.HEAD_DISPLAY_WIDTH + CONFIG.HEAD_MIN_VISUAL_GAP_X - 0.1, 300);
-  const clear = createTestHead(400 + CONFIG.HEAD_DISPLAY_WIDTH + CONFIG.HEAD_MIN_VISUAL_GAP_X, 300);
+  const tooClose = createTestHead(400 + head.width + head.visualGapX - 0.1, 300);
+  const clear = createTestHead(400 + head.width + head.visualGapX + 0.001, 300);
 
   assert.equal(hasMinimumHeadSeparation(head, tooClose), false);
   assert.equal(hasMinimumHeadSeparation(head, clear), true);
@@ -127,7 +143,7 @@ test("configured minimum visual gap is respected", () => {
 test("configured vertical visual gap is respected", () => {
   const head = createTestHead(400, 300);
   const tooClose = createTestHead(400, 300 + head.height + head.visualGapY - 0.1);
-  const clear = createTestHead(400, 300 + head.height + head.visualGapY);
+  const clear = createTestHead(400, 300 + head.height + head.visualGapY + 0.001);
 
   assert.equal(hasMinimumHeadSeparation(head, tooClose), false);
   assert.equal(hasMinimumHeadSeparation(head, clear), true);
@@ -188,17 +204,18 @@ test("fully resolved and invisible heads no longer reserve spawn space", () => {
   assert.equal(isEventPlacementClear(event, [activeHead]), true);
 });
 
-test("a failed placement attempt is retried", () => {
+test("ordinary obstacle placement stays on shared rows when retried", () => {
   const event = createObstacleEvent({
     surferY: 300,
     elapsed: 0,
-    activeHeads: [createTestHead(CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING, randomYAt(0.5))],
-    random: fixedRandom([0.1, 0.5, 0])
+    activeHeads: [createTestHead(CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING, obstacleRowCenter(1))],
+    random: fixedRandom([0.1, 0, 0, 0])
   });
 
   assert.notEqual(event, null);
-  assert.equal(event.attemptCount, 2);
-  assert.equal(isEventPlacementClear(event, [createTestHead(CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING, randomYAt(0.5))]), true);
+  assert.equal(obstacleRowCenters().includes(event.heads[0].y), true);
+  assert.equal(Number.isInteger(event.heads[0].row), true);
+  assert.equal(isEventPlacementClear(event, [createTestHead(CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING, obstacleRowCenter(1))]), true);
 });
 
 test("no valid placement leaves no unintended partial group in the manager", () => {
@@ -295,6 +312,42 @@ test("each registered dodge obstacle keeps its own dimensions, spacing, and coll
   }
 });
 
+test("standard dodge obstacles render at the configured scale without changing their centers", () => {
+  assert.equal(DODGE_OBSTACLE_RENDER_SCALE, 1.12);
+
+  for (const type of DODGE_OBSTACLE_TYPES) {
+    const baseSize = DODGE_BASE_RENDER_SIZES[type.id];
+    const obstacle = createDodgeObstacle(420, obstacleRowCenter(3), Math.random, type, { row: 3 });
+    const manager = new ObstacleManager();
+    const ctx = new FakeContext();
+    manager.activeEvent = fakeEventFromObstacles([obstacle]);
+
+    manager.draw(ctx, { dodgeObstacles: { [type.assetKey]: image(type.assetKey) } });
+
+    assert.equal(obstacle.width, baseSize.width * DODGE_OBSTACLE_RENDER_SCALE);
+    assert.equal(obstacle.height, baseSize.height * DODGE_OBSTACLE_RENDER_SCALE);
+    assert.equal(ctx.drawnWidth, baseSize.width * DODGE_OBSTACLE_RENDER_SCALE);
+    assert.equal(ctx.drawnHeight, baseSize.height * DODGE_OBSTACLE_RENDER_SCALE);
+    assert.equal(ctx.drawnX + ctx.drawnWidth / 2, obstacle.x);
+    assert.equal(ctx.drawnY + ctx.drawnHeight / 2, obstacle.y);
+    assert.equal(obstacle.y, obstacleRowCenter(3));
+  }
+});
+
+test("standard dodge collision bounds scale with the rendered alpha bounds", () => {
+  for (const type of DODGE_OBSTACLE_TYPES) {
+    const baseSize = DODGE_BASE_RENDER_SIZES[type.id];
+    const obstacle = createDodgeObstacle(420, obstacleRowCenter(2), Math.random, type, { row: 2 });
+    const expectedCollisionWidth = baseSize.width * (type.alpha.width / type.source.width) * DODGE_OBSTACLE_RENDER_SCALE;
+    const expectedCollisionHeight = baseSize.height * (type.alpha.height / type.source.height) * DODGE_OBSTACLE_RENDER_SCALE;
+
+    assertAlmostEqual(obstacle.collisionWidth, expectedCollisionWidth);
+    assertAlmostEqual(obstacle.collisionHeight, expectedCollisionHeight);
+    assert.equal(obstacle.hitboxScaleX, type.hitbox.scaleX);
+    assert.equal(obstacle.hitboxScaleY, type.hitbox.scaleY);
+  }
+});
+
 test("weighted dodge obstacle selection returns only registered types deterministically", () => {
   assert.equal(selectDodgeObstacleType(() => 0).id, "head");
   assert.equal(selectDodgeObstacleType(() => 0.16).id, "head");
@@ -321,11 +374,132 @@ test("ordinary obstacle spawning can deterministically select every registered t
   ];
 
   for (const [selection, id, assetKey] of samples) {
-    const event = createObstacleEvent({ surferY: 300, elapsed: 0, random: fixedRandom([0.1, 0.5, selection]) });
+    const event = createObstacleEvent({ surferY: 300, elapsed: 0, random: fixedRandom([0.1, 0, 0, selection]) });
 
     assert.equal(event.heads[0].obstacleTypeId, id);
     assert.equal(event.heads[0].assetKey, assetKey);
   }
+});
+
+test("row geometry calculates exactly six centers inside the playable bounds", () => {
+  const centers = obstacleRowCenters();
+
+  assert.equal(centers.length, 6);
+  assert.deepEqual(centers, [211.25, 263.75, 316.25, 368.75, 421.25, 473.75]);
+  assert.equal(centers.every((y) => y > CONFIG.SURF_BOUNDS.top && y < CONFIG.SURF_BOUNDS.bottom), true);
+});
+
+test("ordinary pattern library exposes deliberate tiered row patterns", () => {
+  assert.ok(OBSTACLE_PATTERNS.length >= 12);
+  assert.deepEqual(PATTERN_BY_ID["center-gate"].obstacles.map((obstacle) => obstacle.row), [0, 1, 4, 5]);
+  assert.equal(PATTERN_BY_ID["diagonal-weave"].safeRoute.includes("diagonal"), true);
+  assert.equal(PATTERN_BY_ID["dense-finale"].allowOverlap, true);
+});
+
+test("ordinary dodge sprites spawn only in defined rows", () => {
+  for (let i = 0; i < 20; i += 1) {
+    const event = createObstacleEvent({
+      surferY: 300,
+      elapsed: 120,
+      random: fixedRandom([0.9, i / 20, 0, 0.5, 0.25, 0.75])
+    });
+
+    assert.ok(event.heads.length >= 1);
+    assert.equal(event.heads.every((head) => obstacleRowCenters().includes(head.y)), true);
+    assert.equal(event.heads.every((head) => Number.isInteger(head.row)), true);
+  }
+});
+
+test("scaled dodge objects preserve lane coordinates and generated navigable gaps", () => {
+  assert.deepEqual(obstacleRowCenters(), [211.25, 263.75, 316.25, 368.75, 421.25, 473.75]);
+
+  for (let i = 0; i < 18; i += 1) {
+    const event = createObstacleEvent({
+      surferY: obstacleRowCenter(i % CONFIG.OBSTACLE_ROW_COUNT),
+      elapsed: 0,
+      random: fixedRandom([0.1, (i % 3) / 3, 0, (i % DODGE_OBSTACLE_TYPES.length) / DODGE_OBSTACLE_TYPES.length])
+    });
+
+    assert.notEqual(event, null);
+    assert.equal(event.heads.every((head) => head.y === obstacleRowCenter(head.row)), true);
+    assert.equal(isEventFair(event, obstacleRowCenter(i % CONFIG.OBSTACLE_ROW_COUNT), event.speed), true);
+  }
+});
+
+test("valid two-row gate pattern is accepted by the fairness validator", () => {
+  const pattern = instantiatePattern(PATTERN_BY_ID["center-gate"], { mirror: false });
+  const result = validatePatternSequence([{ pattern }], {
+    speed: CONFIG.OBSTACLE_START_SPEED,
+    surferY: midpoint(CONFIG.SURF_BOUNDS.top, CONFIG.SURF_BOUNDS.bottom)
+  });
+
+  assert.equal(result.valid, true);
+});
+
+test("a wall with only one usable row is rejected", () => {
+  const obstacles = [0, 1, 2, 4, 5].map((row) =>
+    createDodgeObstacle(CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING, obstacleRowCenter(row), Math.random, HEAD_TYPE, { row })
+  );
+
+  assert.equal(validateObstacleTimeline(obstacles, { speed: CONFIG.OBSTACLE_START_SPEED, surferY: obstacleRowCenter(3) }).valid, false);
+});
+
+test("valid diagonal route is accepted and too-fast diagonal route is rejected", () => {
+  const pattern = instantiatePattern(PATTERN_BY_ID["diagonal-weave"], { mirror: false });
+  const compressedPattern = {
+    ...pattern,
+    id: "compressed-diagonal-weave",
+    obstacles: pattern.obstacles.map((obstacle) => ({
+      ...obstacle,
+      timeOffset: obstacle.timeOffset * 0.12
+    }))
+  };
+  const valid = validatePatternSequence([{ pattern }], {
+    speed: CONFIG.OBSTACLE_START_SPEED,
+    surferY: obstacleRowCenter(5)
+  });
+  const tooFast = validatePatternSequence([{ pattern: compressedPattern }], {
+    speed: CONFIG.OBSTACLE_START_SPEED,
+    surferY: obstacleRowCenter(5)
+  });
+
+  assert.equal(valid.valid, true);
+  assert.equal(tooFast.valid, false);
+});
+
+test("overlapping patterns are rejected when their combined route is blocked", () => {
+  const topGate = instantiatePattern(PATTERN_BY_ID["two-row-gate-top"], { mirror: false });
+  const bottomGate = instantiatePattern(PATTERN_BY_ID["two-row-gate-bottom"], { mirror: false });
+  const result = validatePatternSequence([
+    { pattern: topGate, startTime: 0 },
+    { pattern: bottomGate, startTime: 0 }
+  ], {
+    speed: CONFIG.OBSTACLE_START_SPEED,
+    surferY: midpoint(CONFIG.SURF_BOUNDS.top, CONFIG.SURF_BOUNDS.bottom)
+  });
+
+  assert.equal(result.valid, false);
+});
+
+test("cosmetic bobbing does not change collision row alignment", () => {
+  const manager = new ObstacleManager();
+  manager.addObstacle({
+    assetKey: "bottle",
+    x: 500,
+    row: 2,
+    width: 60,
+    height: 30,
+    speed: 100,
+    collisionScale: 0.5,
+    bobAmount: 20
+  });
+  const before = manager.hitboxes()[0];
+
+  manager.update(0.5, 10, 300);
+  const after = manager.hitboxes()[0];
+
+  assert.equal(before.y, after.y);
+  assert.equal(manager.encounterObstacles[0].y, obstacleRowCenter(2));
 });
 
 test("spawned obstacles retain their selected type during update, collision, and draw", () => {
@@ -366,7 +540,7 @@ test("each dodge obstacle preserves its configured source aspect ratio", () => {
 
   for (const type of DODGE_OBSTACLE_TYPES) {
     const obstacle = createDodgeObstacle(400, 300, Math.random, type);
-    assert.equal(obstacle.width / obstacle.height, expectedAspects.get(type.id));
+    assertAlmostEqual(obstacle.width / obstacle.height, expectedAspects.get(type.id));
   }
 });
 
@@ -583,17 +757,12 @@ function createTestHead(x, y, type = HEAD_TYPE) {
   return createDodgeObstacle(x, y, Math.random, type);
 }
 
-function randomYAt(value) {
-  const maxHeight = Math.max(...DODGE_OBSTACLE_TYPES.map((type) => type.render.height));
-  return (
-    CONFIG.SURF_BOUNDS.top +
-    maxHeight / 2 +
-    (CONFIG.SURF_BOUNDS.bottom - CONFIG.SURF_BOUNDS.top - maxHeight) * value
-  );
-}
-
 function midpoint(a, b) {
   return a + (b - a) / 2;
+}
+
+function assertAlmostEqual(actual, expected, epsilon = 1e-9) {
+  assert.ok(Math.abs(actual - expected) <= epsilon, `${actual} did not equal ${expected}`);
 }
 
 function createBlockingSpawnColumn() {

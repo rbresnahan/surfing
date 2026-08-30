@@ -1,3 +1,5 @@
+export const DODGE_OBSTACLE_RENDER_SCALE = 1.12;
+
 const DODGE_HEAD_RENDER_WIDTH = 70;
 const DODGE_NOODLE_GIRL_RENDER_WIDTH = 88;
 const DODGE_NOODLE_MAN_RENDER_WIDTH = 96;
@@ -105,8 +107,10 @@ function createDodgeObstacleType({
   visualGap
 }) {
   const sourceAspect = source.width / source.height;
-  const width = renderWidth ?? renderHeight * sourceAspect;
-  const height = renderHeight ?? renderWidth / sourceAspect;
+  const baseWidth = renderWidth ?? renderHeight * sourceAspect;
+  const baseHeight = renderHeight ?? renderWidth / sourceAspect;
+  const width = baseWidth * DODGE_OBSTACLE_RENDER_SCALE;
+  const height = baseHeight * DODGE_OBSTACLE_RENDER_SCALE;
 
   return {
     id,

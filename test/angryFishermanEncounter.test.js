@@ -7,6 +7,7 @@ import { rectsOverlap } from "../src/collision.js";
 import {
   AngryFishermanEncounter,
   FISHERMAN_STATES,
+  FISHERMAN_THROW_ROWS,
   ORDINARY_THROW_SEQUENCE,
   THROWABLES,
   WALLET_THROWABLE_ID,
@@ -21,6 +22,7 @@ import {
   waterRenderSize
 } from "../src/angryFishermanEncounter.js";
 import { ObstacleManager } from "../src/obstacles.js";
+import { obstacleRowCenter, obstacleRowCenters } from "../src/rowGeometry.js";
 
 const EXPECTED_MAPPINGS = {
   can: ["item-beer-can.png", "item-beer-can-water.png"],
@@ -40,6 +42,15 @@ const EXPECTED_WATER_ASPECT_RATIOS = {
   wallet: 1391 / 1009
 };
 
+const EXPECTED_THROWABLE_DIMENSIONS = {
+  bottle: { airborneWidth: 62, waterWidth: 92, collisionWidth: 62, collisionHeight: 30 },
+  can: { airborneWidth: 42, waterWidth: 72, collisionWidth: 42, collisionHeight: 32 },
+  "life-vest": { airborneWidth: 72, waterWidth: 104, collisionWidth: 72, collisionHeight: 54 },
+  "life-ring": { airborneWidth: 76, waterWidth: 108, collisionWidth: 76, collisionHeight: 58 },
+  sandwich: { airborneWidth: 54, waterWidth: 84, collisionWidth: 54, collisionHeight: 38 },
+  wallet: { airborneWidth: 58, waterWidth: 88, collisionWidth: 58, collisionHeight: 46 }
+};
+
 test("every throwable has a valid airborne and water asset mapping", async () => {
   for (const item of THROWABLES) {
     const [airFile, waterFile] = EXPECTED_MAPPINGS[item.id];
@@ -49,6 +60,19 @@ test("every throwable has a valid airborne and water asset mapping", async () =>
 
     await access(new URL(`../assets/${airFile}`, import.meta.url));
     await access(new URL(`../assets/${waterFile}`, import.meta.url));
+  }
+});
+
+test("rowboat item sprite and collision dimensions remain unchanged", () => {
+  for (const item of THROWABLES) {
+    const expected = EXPECTED_THROWABLE_DIMENSIONS[item.id];
+
+    assert.equal(item.airborneTargetWidth, expected.airborneWidth);
+    assert.equal(item.waterTargetWidth, expected.waterWidth);
+    assert.equal(item.collisionWidth, expected.collisionWidth);
+    assert.equal(item.collisionHeight, expected.collisionHeight);
+    assert.equal(airborneRenderSize(item).width, expected.airborneWidth);
+    assert.equal(waterRenderSize(item).width, expected.waterWidth);
   }
 });
 
@@ -659,11 +683,40 @@ test("fisherman projectile physics and timing remain unchanged", () => {
   assert.equal(projectile.startX, 720);
   assert.equal(projectile.startY, 268);
   assert.equal(projectile.landingX, CONFIG.OBSTACLE_SUBMERGE_START_X + 290);
-  assert.equal(projectile.landingY, 326);
+  assert.equal(projectile.landingY, obstacleRowCenter(projectile.row));
 
   const mid = projectilePosition(projectile, 0.5);
   assert.equal(mid.x, 700);
-  assert.equal(mid.y, 297 - CONFIG.FISHERMAN_PROJECTILE_ARC_HEIGHT);
+  assert.equal(mid.y, (projectile.startY + projectile.landingY) / 2 - CONFIG.FISHERMAN_PROJECTILE_ARC_HEIGHT);
+});
+
+test("fisherman throws use intentional shared obstacle rows", () => {
+  const encounter = new AngryFishermanEncounter(() => 0);
+  encounter.start();
+
+  assert.deepEqual(encounter.throwRows, FISHERMAN_THROW_ROWS);
+  for (let i = 0; i < encounter.throwOrder.length; i += 1) {
+    encounter.ammoIndex = i;
+    encounter.y = obstacleRowCenter(FISHERMAN_THROW_ROWS[i]) - 26;
+    encounter.throwNextItem();
+    const projectile = encounter.projectiles.at(-1);
+
+    assert.equal(projectile.row, FISHERMAN_THROW_ROWS[i]);
+    assert.equal(projectile.landingY, obstacleRowCenter(FISHERMAN_THROW_ROWS[i]));
+    assert.equal(obstacleRowCenters().includes(projectile.landingY), true);
+  }
+});
+
+test("fisherman waterborne items remain aligned with their assigned row", () => {
+  const item = throwableById("sandwich");
+  const projectile = createProjectile(item, 810, 300, { row: 4, patternId: "test-rowboat" });
+  const manager = new ObstacleManager();
+
+  updateProjectile(projectile, projectile.duration, { obstacles: manager });
+
+  assert.equal(manager.encounterObstacles[0].row, 4);
+  assert.equal(manager.encounterObstacles[0].y, obstacleRowCenter(4));
+  assert.equal(manager.encounterObstacles[0].patternId, "test-rowboat");
 });
 
 function createAssets() {

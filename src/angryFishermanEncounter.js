@@ -1,5 +1,6 @@
 import { CONFIG } from "./config.js";
 import { centeredRect } from "./collision.js";
+import { nearestObstacleRow, obstacleRowCenter } from "./rowGeometry.js";
 
 export const FISHERMAN_STATES = {
   INACTIVE: "INACTIVE",
@@ -98,6 +99,7 @@ export const THROWABLES = [
 
 export const WALLET_THROWABLE_ID = "wallet";
 export const ORDINARY_THROW_SEQUENCE = ["bottle", "can", "sandwich", "life-ring", "bottle", "life-vest"];
+export const FISHERMAN_THROW_ROWS = [1, 4, 2, 5, 0, 3, 2];
 
 const WalletState = {
   WAITING: "WAITING",
@@ -122,9 +124,10 @@ export class AngryFishermanEncounter {
   start() {
     this.resetInternal();
     this.throwOrder = createThrowOrder(this.random);
+    this.throwRows = [...FISHERMAN_THROW_ROWS];
     this.state = FISHERMAN_STATES.ENTERING;
     this.x = CONFIG.WIDTH + this.boatWidth / 2 + 20;
-    this.y = CONFIG.FISHERMAN_THROW_LANES[1] ?? midpoint(CONFIG.SURF_BOUNDS.top, CONFIG.SURF_BOUNDS.bottom);
+    this.y = boatYForTargetRow(this.throwRows[0]);
   }
 
   update(dt, gameState) {
@@ -245,6 +248,7 @@ export class AngryFishermanEncounter {
     this.timer = 0;
     this.ammoIndex = 0;
     this.throwOrder = [];
+    this.throwRows = [];
     this.walletState = WalletState.WAITING;
     this.walletLandingHandled = false;
     this.walletLandedThisFrame = false;
@@ -254,8 +258,10 @@ export class AngryFishermanEncounter {
   }
 
   chooseNextLane() {
-    const lane = chooseLane(CONFIG.FISHERMAN_THROW_LANES, this.lastLane);
+    const targetRow = this.throwRows[this.ammoIndex] ?? nearestObstacleRow(this.y + 26);
+    const lane = boatYForTargetRow(targetRow);
     this.lastLane = lane;
+    this.targetRow = targetRow;
     this.targetLane = lane;
     this.state = FISHERMAN_STATES.MOVING_TO_LANE;
   }
@@ -275,8 +281,11 @@ export class AngryFishermanEncounter {
 
   throwNextItem(gameState = null) {
     const item = throwableById(this.throwOrder[this.ammoIndex]);
+    const row = this.throwRows[this.ammoIndex] ?? nearestObstacleRow(this.y + 26);
     this.ammoIndex += 1;
     const projectile = createProjectile(item, this.x, this.y, {
+      row,
+      patternId: "angry-fisherman-throw",
       onLanded: item.id === WALLET_THROWABLE_ID ? () => this.handleWalletLanded() : null
     });
     if (item.id === WALLET_THROWABLE_ID) {
@@ -307,10 +316,13 @@ export function createProjectile(item, boatX, boatY, options = {}) {
   const startX = boatX - 90;
   const startY = boatY - 32;
   const landingX = CONFIG.OBSTACLE_SUBMERGE_START_X + 290;
-  const landingY = boatY + 26;
+  const row = options.row ?? nearestObstacleRow(boatY + 26);
+  const landingY = obstacleRowCenter(row);
 
   return {
     item,
+    row,
+    patternId: options.patternId ?? null,
     age: 0,
     duration: projectileDurationSeconds(item),
     startX,
@@ -337,6 +349,8 @@ export function updateProjectile(projectile, dt, gameState) {
     assetKey: projectile.item.waterAssetKey,
     x: projectile.landingX,
     y: projectile.landingY,
+    row: projectile.row,
+    patternId: projectile.patternId,
     width,
     height,
     collisionWidth: projectile.item.collisionWidth,
@@ -415,6 +429,10 @@ function chooseLane(lanes, previousLane) {
   const options = lanes.filter((lane) => lane !== previousLane);
   const pool = options.length ? options : lanes;
   return pool[Math.floor(Math.random() * pool.length)];
+}
+
+function boatYForTargetRow(row) {
+  return obstacleRowCenter(row) - 26;
 }
 
 export function throwableById(id) {

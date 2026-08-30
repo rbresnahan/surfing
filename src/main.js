@@ -9,6 +9,7 @@ import { ObstacleManager } from "./obstacles.js";
 import { rectsOverlap } from "./collision.js";
 import { calculateScore, formatTime, loadRecords, saveRecords } from "./scoring.js";
 import { Surfer } from "./surfer.js";
+import { obstacleRows, obstacleRowSpacing } from "./rowGeometry.js";
 
 const canvas = document.querySelector("#game");
 const ctx = canvas.getContext("2d");
@@ -128,7 +129,7 @@ function draw() {
   encounters.render(ctx, buildEncounterGameState());
   surfer.draw(ctx, assets, state === GameState.CRASHED);
 
-  if (CONFIG.DEBUG) {
+  if (CONFIG.DEBUG || CONFIG.DEBUG_OBSTACLE_ROWS) {
     drawDebug();
   }
 
@@ -219,10 +220,20 @@ function drawDebug() {
   ctx.lineWidth = 2;
   ctx.strokeRect(bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top);
 
+  if (CONFIG.DEBUG_OBSTACLE_ROWS) {
+    drawDebugRows();
+  }
+
   ctx.strokeStyle = "#ff4f8b";
   const surferBox = surfer.hitbox(assets);
   ctx.strokeRect(surferBox.x, surferBox.y, surferBox.width, surferBox.height);
   drawDebugCenter(surfer.x, surfer.y, "#ff4f8b");
+
+  if (CONFIG.DEBUG_OBSTACLE_ROWS) {
+    const footprint = obstacleRowSpacing() * 2;
+    ctx.strokeStyle = "rgba(255, 79, 139, 0.55)";
+    ctx.strokeRect(bounds.left, surfer.y - footprint / 2, bounds.right - bounds.left, footprint);
+  }
 
   ctx.strokeStyle = "#3f1cff";
   for (const box of obstacles.hitboxes()) {
@@ -230,8 +241,32 @@ function drawDebug() {
   }
   for (const center of obstacles.centers()) {
     drawDebugCenter(center.x, center.y, "#3f1cff");
+    if (CONFIG.DEBUG_OBSTACLE_ROWS && Number.isInteger(center.row)) {
+      ctx.fillStyle = "#3f1cff";
+      ctx.font = "14px 'Courier New', monospace";
+      ctx.fillText(`r${center.row} ${center.patternId ?? ""}`, center.x + 8, center.y - 18);
+    }
   }
   drawDebugSubmergeMarkers();
+  ctx.restore();
+}
+
+function drawDebugRows() {
+  ctx.save();
+  ctx.font = "15px 'Courier New', monospace";
+  ctx.textBaseline = "middle";
+  for (const { row, centerY } of obstacleRows()) {
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.62)";
+    ctx.beginPath();
+    ctx.moveTo(CONFIG.SURF_BOUNDS.left, centerY);
+    ctx.lineTo(CONFIG.SURF_BOUNDS.right, centerY);
+    ctx.stroke();
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(`${row}`, CONFIG.SURF_BOUNDS.left - 22, centerY);
+  }
+  const activeId = obstacles.activeEvent?.patternId ?? "none";
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText(`active ${activeId}`, CONFIG.SURF_BOUNDS.left, CONFIG.SURF_BOUNDS.top - 18);
   ctx.restore();
 }
 

@@ -6,6 +6,9 @@ import {
   airborneRenderSize,
   waterRenderSize
 } from "./angryFishermanEncounter.js";
+import { instantiatePattern, PATTERN_BY_ID } from "./obstaclePatterns.js";
+import { obstacleRowCenter, rowsForOpening } from "./rowGeometry.js";
+import { validateObstacleTimeline } from "./patternValidator.js";
 
 export const COOLER_PHASES = {
   WAITING: "waiting",
@@ -19,14 +22,16 @@ export const COOLER_PHASES = {
 };
 
 export const COOLER_WAVE_PATTERNS = {
-  GAP_LINE: "gap-line",
-  SCATTER: "scatter"
+  GAP_LINE: "cooler-row-gate",
+  SCATTER: "cooler-stagger",
+  FINALE: "cooler-finale"
 };
 
 export const COOLER_THROWABLES = THROWABLES.filter((item) => item.id !== WALLET_THROWABLE_ID);
 
 const WAVE_COUNT = 3;
 const COOLER_OPENING_OFFSET_X = -80;
+const COOLER_RELEASE_POINT_OFFSET_Y = 0;
 
 export class CoolerFishermanEncounter {
   constructor(random = Math.random) {
@@ -48,7 +53,7 @@ export class CoolerFishermanEncounter {
     this.phase = COOLER_PHASES.ENTERING;
     this.started = true;
     this.x = CONFIG.WIDTH + this.boatWidth / 2 + 20;
-    this.y = CONFIG.FISHERMAN_THROW_LANES[1] ?? midpoint(CONFIG.SURF_BOUNDS.top, CONFIG.SURF_BOUNDS.bottom);
+    this.y = obstacleRowCenter(2) - 26;
     this.firstSide = this.random() < 0.5 ? "top" : "bottom";
     this.waveSides = Array.from({ length: WAVE_COUNT }, (_, index) =>
       index % 2 === 0 ? this.firstSide : oppositeSide(this.firstSide)
@@ -86,15 +91,14 @@ export class CoolerFishermanEncounter {
     }
 
     if (this.phase === COOLER_PHASES.DUMPING_WAVE) {
-      this.moveTowardTargetY(dt);
+      const previousReleaseY = this.releasePoint().y;
+      const reachedTarget = this.moveTowardTargetY(dt);
+      const currentReleaseY = this.releasePoint().y;
       this.releaseTimer -= dt;
-      if (this.releaseTimer <= 0 && this.releaseIndex < this.activeWave.items.length) {
-        this.releasePlannedItem(this.activeWave.items[this.releaseIndex]);
-        this.releaseIndex += 1;
-        this.releaseTimer = CONFIG.COOLER_ITEM_RELEASE_INTERVAL_SECONDS;
-      }
+      this.dumpElapsed += dt;
+      this.releaseCrossing(previousReleaseY, currentReleaseY);
 
-      if (this.releaseIndex >= this.activeWave.items.length && this.drops.length === 0) {
+      if (reachedTarget && this.releaseIndex >= this.activeWave.items.length && this.drops.length === 0) {
         this.completedWaves += 1;
         this.waveIndex += 1;
         this.activeWave = null;
@@ -182,18 +186,66 @@ export class CoolerFishermanEncounter {
     this.targetY = attackY(oppositeSide(side));
     this.releaseIndex = 0;
     this.releaseTimer = 0;
+    this.dumpElapsed = 0;
+    this.processedRowCrossings = new Set();
     this.phase = COOLER_PHASES.DUMPING_WAVE;
+  }
+
+  releaseCrossing(previousReleaseY, currentReleaseY) {
+    if (!this.activeWave || this.releaseIndex >= this.activeWave.items.length) return;
+    const direction = Math.sign(currentReleaseY - previousReleaseY);
+    if (direction === 0) return;
+
+    let selectedItem = null;
+    let selectedIndex = -1;
+
+    for (let index = this.releaseIndex; index < this.activeWave.items.length; index += 1) {
+      const planItem = this.activeWave.items[index];
+      const rowY = obstacleRowCenter(planItem.row);
+      const crossed = direction > 0
+        ? previousReleaseY <= rowY && currentReleaseY >= rowY
+        : previousReleaseY >= rowY && currentReleaseY <= rowY;
+
+      if (!crossed) {
+        const stale = direction > 0 ? rowY < currentReleaseY : rowY > currentReleaseY;
+        if (!stale) break;
+        this.releaseIndex = index + 1;
+        continue;
+      }
+
+      selectedItem = planItem;
+      selectedIndex = index;
+    }
+
+    if (!selectedItem) return;
+
+    this.releaseIndex = selectedIndex + 1;
+    if (this.processedRowCrossings.has(selectedItem.row)) return;
+
+    this.processedRowCrossings.add(selectedItem.row);
+    this.releasePlannedItem(selectedItem);
+  }
+
+  releasePoint() {
+    return {
+      x: this.x + COOLER_OPENING_OFFSET_X,
+      y: this.y + COOLER_RELEASE_POINT_OFFSET_Y
+    };
   }
 
   releasePlannedItem(planItem) {
     const item = planItem.item;
-    const startX = this.x + COOLER_OPENING_OFFSET_X;
-    const startY = planItem.y - CONFIG.COOLER_DROP_DISTANCE_Y;
+    const releasePoint = this.releasePoint();
+    const startX = releasePoint.x;
+    const rowY = obstacleRowCenter(planItem.row);
+    const startY = rowY;
     const landingX = startX - CONFIG.COOLER_DROP_DISTANCE_X;
-    const landingY = planItem.y;
+    const landingY = rowY;
 
     this.drops.push({
       item,
+      row: planItem.row,
+      patternId: this.activeWave.pattern,
       age: 0,
       duration: CONFIG.COOLER_DROP_DURATION_SECONDS,
       startX,
@@ -213,7 +265,10 @@ export class CoolerFishermanEncounter {
 
       if (!drop.impacted) {
         drop.impacted = true;
-        gameState?.obstacles?.addObstacle?.(createWaterObstacle(drop.item, drop.landingX, drop.landingY));
+        gameState?.obstacles?.addObstacle?.(createWaterObstacle(drop.item, drop.landingX, drop.landingY, {
+          row: drop.row,
+          patternId: drop.patternId
+        }));
       }
       return false;
     });
@@ -238,6 +293,7 @@ export class CoolerFishermanEncounter {
     this.targetY = this.y;
     this.timer = 0;
     this.releaseTimer = 0;
+    this.dumpElapsed = 0;
     this.releaseIndex = 0;
     this.waveIndex = 0;
     this.completedWaves = 0;
@@ -247,6 +303,7 @@ export class CoolerFishermanEncounter {
     this.activeWave = null;
     this.lastReleasedItems = [];
     this.drops = [];
+    this.processedRowCrossings = new Set();
     this.started = false;
     this.lastGameState = null;
     this.boatWidth = CONFIG.FISHERMAN_DISPLAY_WIDTH;
@@ -254,15 +311,18 @@ export class CoolerFishermanEncounter {
 }
 
 export function createCoolerWavePlan({ side, waveIndex = 0, previousPattern = null, random = Math.random }) {
-  const pattern = choosePattern(previousPattern, waveIndex, random);
-  const gap = chooseProtectedGap(random);
-  const items = pattern === COOLER_WAVE_PATTERNS.GAP_LINE
-    ? createGapLineItems(gap, random)
-    : createScatterItems(gap, side, random);
-  const plan = { waveNumber: waveIndex + 1, side, pattern, gap, items };
+  const pattern = createCoolerPattern(choosePattern(previousPattern, waveIndex, random), side, random);
+  const items = createPatternItems(pattern, random);
+  const plan = {
+    waveNumber: waveIndex + 1,
+    side,
+    pattern: pattern.id,
+    gap: openingForPattern(pattern),
+    items
+  };
 
   if (!validateCoolerWavePlan(plan)) {
-    return createFallbackGapLinePlan({ side, waveIndex, gap, random });
+    return createFallbackGapLinePlan({ side, waveIndex, gap: plan.gap, random });
   }
 
   return plan;
@@ -271,29 +331,33 @@ export function createCoolerWavePlan({ side, waveIndex = 0, previousPattern = nu
 export function validateCoolerWavePlan(plan) {
   if (!plan.items.length) return false;
   if (plan.items.some(({ item }) => item.id === WALLET_THROWABLE_ID)) return false;
+  if (plan.items.some(({ row }) => !Number.isInteger(row))) return false;
 
-  const gap = plan.gap;
-  if (gap.bottom - gap.top < CONFIG.COOLER_PROTECTED_GAP_SIZE) return false;
-
-  for (const planItem of plan.items) {
-    const half = (planItem.item.collisionHeight * planItem.item.collisionScale) / 2;
-    const blockedTop = planItem.y - half - surferHalfHeight() - safeGapMargin();
-    const blockedBottom = planItem.y + half + surferHalfHeight() + safeGapMargin();
-    if (blockedTop < gap.bottom && blockedBottom > gap.top) {
-      return false;
-    }
-  }
-
-  return hasNavigableGap(plan.items, gap);
+  return validateObstacleTimeline(plan.items.map((planItem) => ({
+    row: planItem.row,
+    y: planItem.y ?? obstacleRowCenter(planItem.row),
+    x: CONFIG.FISHERMAN_STOP_X + COOLER_OPENING_OFFSET_X - CONFIG.COOLER_DROP_DISTANCE_X +
+      releaseOffsetForRow(planItem.row, plan.side) * CONFIG.FISHERMAN_THROWABLE_SPEED,
+    timeOffset: releaseOffsetForRow(planItem.row, plan.side),
+    collisionWidth: planItem.item.collisionWidth,
+    collisionHeight: planItem.item.collisionHeight,
+    collisionScale: planItem.item.collisionScale,
+    speed: CONFIG.FISHERMAN_THROWABLE_SPEED * planItem.item.speedMultiplier
+  })), {
+    speed: CONFIG.FISHERMAN_THROWABLE_SPEED,
+    surferY: midpoint(CONFIG.SURF_BOUNDS.top, CONFIG.SURF_BOUNDS.bottom)
+  }).valid;
 }
 
-export function createWaterObstacle(item, x, y) {
+export function createWaterObstacle(item, x, y, options = {}) {
   const { width, height } = waterRenderSize(item);
   return {
     source: "angry-fisherman-cooler",
     assetKey: item.waterAssetKey,
     x,
     y,
+    row: options.row,
+    patternId: options.patternId ?? null,
     width,
     height,
     collisionWidth: item.collisionWidth,
@@ -344,87 +408,72 @@ function dropHitbox(drop) {
   );
 }
 
-function createGapLineItems(gap, random) {
-  const laneCount = CONFIG.COOLER_ITEMS_PER_WAVE;
-  const top = CONFIG.SURF_BOUNDS.top + 18;
-  const bottom = CONFIG.SURF_BOUNDS.bottom - 18;
-  const step = (bottom - top) / (laneCount - 1);
-  const items = [];
-
-  for (let i = 0; i < laneCount; i += 1) {
-    const y = top + step * i;
-    const item = randomCoolerThrowable(random);
-    if (!isYAllowedByProtectedGap(item, y, gap)) continue;
-    items.push({ item, y });
-  }
-
-  return items;
-}
-
-function createScatterItems(gap, side, random) {
-  const items = [];
-  const top = CONFIG.SURF_BOUNDS.top + 24;
-  const bottom = CONFIG.SURF_BOUNDS.bottom - 24;
-  const direction = side === "top" ? 1 : -1;
-
-  for (let i = 0; i < CONFIG.COOLER_ITEMS_PER_WAVE; i += 1) {
-    const sweep = i / Math.max(1, CONFIG.COOLER_ITEMS_PER_WAVE - 1);
-    const baseY = direction === 1
-      ? lerp(top, bottom, sweep)
-      : lerp(bottom, top, sweep);
-    const y = clamp(baseY + (random() - 0.5) * 74, top, bottom);
-    const item = randomCoolerThrowable(random);
-    if (!isYAllowedByProtectedGap(item, y, gap)) continue;
-    items.push({ item, y });
-  }
-
-  return items;
-}
-
-function isYAllowedByProtectedGap(item, y, gap) {
-  const half = (item.collisionHeight * item.collisionScale) / 2;
-  const blockedTop = y - half - surferHalfHeight() - safeGapMargin();
-  const blockedBottom = y + half + surferHalfHeight() + safeGapMargin();
-  return blockedTop >= gap.bottom || blockedBottom <= gap.top;
-}
-
 function createFallbackGapLinePlan({ side, waveIndex, gap, random }) {
+  const pattern = createCoolerPattern(COOLER_WAVE_PATTERNS.GAP_LINE, side, random);
   return {
     waveNumber: waveIndex + 1,
     side,
-    pattern: COOLER_WAVE_PATTERNS.GAP_LINE,
-    gap,
-    items: createGapLineItems(gap, random)
+    pattern: pattern.id,
+    gap: gap ?? openingForPattern(pattern),
+    items: createPatternItems(pattern, random)
   };
 }
 
 function choosePattern(previousPattern, waveIndex, random) {
-  if (waveIndex === 2 && previousPattern) return oppositePattern(previousPattern);
-  return random() < 0.5 ? COOLER_WAVE_PATTERNS.GAP_LINE : COOLER_WAVE_PATTERNS.SCATTER;
+  if (waveIndex === 2) return COOLER_WAVE_PATTERNS.FINALE;
+  const selected = random() < 0.5 ? COOLER_WAVE_PATTERNS.GAP_LINE : COOLER_WAVE_PATTERNS.SCATTER;
+  return selected === previousPattern ? oppositePattern(selected) : selected;
 }
 
-function chooseProtectedGap(random) {
-  const margin = CONFIG.COOLER_PROTECTED_GAP_SIZE / 2;
-  const center = lerp(CONFIG.SURF_BOUNDS.top + margin, CONFIG.SURF_BOUNDS.bottom - margin, random());
+function createCoolerPattern(patternId, side, random) {
+  const base = patternId === COOLER_WAVE_PATTERNS.GAP_LINE
+    ? PATTERN_BY_ID["center-gate"]
+    : patternId === COOLER_WAVE_PATTERNS.SCATTER
+      ? PATTERN_BY_ID["sweeping-staircase"]
+      : PATTERN_BY_ID["split-clusters"];
+  const pattern = instantiatePattern(base, { random, mirror: side === "bottom" });
   return {
-    top: center - margin,
-    bottom: center + margin
+    ...pattern,
+    id: patternId,
+    side,
+    obstacles: pattern.obstacles.map((obstacle) => ({
+      ...obstacle,
+      timeOffset: obstacle.timeOffset
+    }))
   };
 }
 
-function hasNavigableGap(items, gap) {
-  const surferHalf = surferHalfHeight();
-  const center = midpoint(gap.top, gap.bottom);
-  const surferBox = centeredRect(CONFIG.SURF_BOUNDS.left + 20, center, 1, surferHalf * 2);
-  return items.every(({ item, y }) => {
-    const itemBox = centeredRect(
-      CONFIG.SURF_BOUNDS.left + 20,
-      y,
-      1,
-      item.collisionHeight * item.collisionScale + safeGapMargin() * 2
-    );
-    return !rectsOverlapY(surferBox, itemBox);
-  });
+function createPatternItems(pattern, random) {
+  const direction = releaseDirectionForSide(pattern.side);
+  const plannedRows = new Set();
+  return pattern.obstacles
+    .filter((obstacle) => {
+      if (plannedRows.has(obstacle.row)) return false;
+      plannedRows.add(obstacle.row);
+      return true;
+    })
+    .map((obstacle) => ({
+      item: randomCoolerThrowable(random),
+      row: obstacle.row,
+      y: obstacleRowCenter(obstacle.row),
+      releaseOffset: releaseOffsetForRow(obstacle.row, pattern.side)
+    }))
+    .sort((a, b) => direction * (a.row - b.row));
+}
+
+function openingForPattern(pattern) {
+  const occupied = new Set(pattern.obstacles.filter((obstacle) => obstacle.timeOffset === 0).map((obstacle) => obstacle.row));
+  const openRows = rowsForOpening([...occupied]);
+  if (!openRows.length) {
+    return {
+      top: CONFIG.SURF_BOUNDS.top,
+      bottom: CONFIG.SURF_BOUNDS.bottom
+    };
+  }
+  return {
+    top: obstacleRowCenter(Math.min(...openRows)) - CONFIG.COOLER_PROTECTED_GAP_SIZE / 2,
+    bottom: obstacleRowCenter(Math.max(...openRows)) + CONFIG.COOLER_PROTECTED_GAP_SIZE / 2
+  };
 }
 
 function randomCoolerThrowable(random) {
@@ -445,16 +494,13 @@ function attackY(side) {
   return CONFIG.COOLER_ATTACK_POSITIONS[side];
 }
 
-function surferHalfHeight() {
-  return (CONFIG.SURFER_DISPLAY_HEIGHT * CONFIG.SURFER_HITBOX_SCALE_Y) / 2;
+function releaseDirectionForSide(side) {
+  return side === "top" ? 1 : -1;
 }
 
-function safeGapMargin() {
-  return (CONFIG.COOLER_PROTECTED_GAP_SIZE - CONFIG.SURFER_DISPLAY_HEIGHT * CONFIG.SURFER_HITBOX_SCALE_Y) / 2;
-}
-
-function rectsOverlapY(a, b) {
-  return a.y < b.y + b.height && a.y + a.height > b.y;
+function releaseOffsetForRow(row, side) {
+  const startY = attackY(side) + COOLER_RELEASE_POINT_OFFSET_Y;
+  return Math.abs(obstacleRowCenter(row) - startY) / CONFIG.COOLER_BOAT_VERTICAL_SPEED;
 }
 
 function midpoint(a, b) {
@@ -463,8 +509,4 @@ function midpoint(a, b) {
 
 function lerp(a, b, t) {
   return a + (b - a) * t;
-}
-
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
 }

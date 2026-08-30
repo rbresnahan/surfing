@@ -12,6 +12,15 @@ import {
   validateCoolerWavePlan
 } from "../src/coolerFishermanEncounter.js";
 import { THROWABLES, waterRenderSize } from "../src/angryFishermanEncounter.js";
+import { obstacleRowCenter, obstacleRowCenters } from "../src/rowGeometry.js";
+
+const EXPECTED_COOLER_THROWABLE_DIMENSIONS = {
+  bottle: { waterWidth: 92, collisionWidth: 62, collisionHeight: 30 },
+  can: { waterWidth: 72, collisionWidth: 42, collisionHeight: 32 },
+  "life-vest": { waterWidth: 104, collisionWidth: 72, collisionHeight: 54 },
+  "life-ring": { waterWidth: 108, collisionWidth: 76, collisionHeight: 58 },
+  sandwich: { waterWidth: 84, collisionWidth: 54, collisionHeight: 38 }
+};
 
 test("cooler encounter begins at 105 seconds and not earlier", () => {
   const encounter = new CoolerFishermanEncounter(() => 0);
@@ -117,11 +126,15 @@ test("cooler dumped items keep their configured water aspect ratios and never in
 
   for (const item of COOLER_THROWABLES) {
     const original = THROWABLES.find((throwable) => throwable.id === item.id);
+    const expected = EXPECTED_COOLER_THROWABLE_DIMENSIONS[item.id];
     const size = waterRenderSize(item);
 
     assert.equal(item.waterVisualAspectRatio, original.waterVisualAspectRatio);
     assert.equal(size.width, item.waterTargetWidth);
     assert.equal(size.height, item.waterTargetWidth / item.waterVisualAspectRatio);
+    assert.equal(item.waterTargetWidth, expected.waterWidth);
+    assert.equal(item.collisionWidth, expected.collisionWidth);
+    assert.equal(item.collisionHeight, expected.collisionHeight);
   }
 });
 
@@ -135,8 +148,9 @@ test("every generated cooler wave contains a validated surfer-sized safe gap", (
     });
 
     assert.equal(validateCoolerWavePlan(plan), true);
-    assert.ok(plan.gap.bottom - plan.gap.top >= CONFIG.COOLER_PROTECTED_GAP_SIZE);
+    assert.ok(plan.gap.bottom > plan.gap.top);
     assert.equal(plan.items.some(({ item }) => item.id === "wallet"), false);
+    assert.equal(plan.items.every(({ row, y }) => obstacleRowCenter(row) === y), true);
   }
 });
 
@@ -158,7 +172,7 @@ test("cooler safe-gap validation rejects an unavoidable full-height barrier", ()
   assert.equal(validateCoolerWavePlan(plan), false);
 });
 
-test("cooler release cadence never dumps an entire wave on one frame", () => {
+test("cooler release cadence follows row crossings without simultaneous dumping", () => {
   const encounter = new CoolerFishermanEncounter(() => 0);
   const gameState = createGameState();
   encounter.start();
@@ -167,14 +181,134 @@ test("cooler release cadence never dumps an entire wave on one frame", () => {
   encounter.phase = COOLER_PHASES.PREPARING_WAVE;
   encounter.beginDumpingWave();
 
-  encounter.update(1, gameState);
+  encounter.update(0.01, gameState);
 
-  assert.equal(encounter.lastReleasedItems.length, 1);
-  assert.equal(encounter.drops.length, 1);
+  assert.ok(encounter.lastReleasedItems.length <= 1);
+  assert.equal(encounter.drops.every((drop) => obstacleRowCenters().includes(drop.landingY)), true);
   assert.equal(gameState.obstacles.encounterObstacles.length, 0);
 
   encounter.update(CONFIG.COOLER_DROP_DURATION_SECONDS, gameState);
+  assert.equal(gameState.obstacles.encounterObstacles.length <= 1, true);
+  assert.equal(gameState.obstacles.encounterObstacles.every((obstacle) => obstacleRowCenters().includes(obstacle.y)), true);
+});
+
+test("cooler items release only when the boat release point crosses their row", () => {
+  const encounter = dumpingEncounter("top", [0]);
+  const gameState = createGameState();
+  const rowY = obstacleRowCenter(0);
+  const dt = (rowY - encounter.releasePoint().y) / CONFIG.COOLER_BOAT_VERTICAL_SPEED + 0.001;
+
+  encounter.update(dt, gameState);
+
+  assert.equal(encounter.drops.length, 1);
+  assert.equal(encounter.drops[0].row, 0);
+  assert.equal(encounter.drops[0].startX, CONFIG.FISHERMAN_STOP_X - 80);
+  assert.equal(encounter.drops[0].startY, rowY);
+  assert.equal(encounter.drops[0].landingY, rowY);
+  assert.equal(encounter.releasePoint().y >= rowY, true);
+});
+
+test("cooler item water obstacles stay on existing row centers", () => {
+  const encounter = dumpingEncounter("top", [0]);
+  const gameState = createGameState();
+
+  encounter.update(crossingDt(encounter, 0), gameState);
+  encounter.update(CONFIG.COOLER_DROP_DURATION_SECONDS, gameState);
+
   assert.equal(gameState.obstacles.encounterObstacles.length, 1);
+  assert.equal(gameState.obstacles.encounterObstacles[0].row, 0);
+  assert.equal(gameState.obstacles.encounterObstacles[0].y, obstacleRowCenter(0));
+});
+
+test("empty planned rows do not release arbitrary nonaligned items", () => {
+  const encounter = dumpingEncounter("top", [2]);
+  const gameState = createGameState();
+
+  encounter.update(crossingDt(encounter, 0), gameState);
+  encounter.update(crossingDt(encounter, 1), gameState);
+
+  assert.equal(encounter.drops.length, 0);
+  assert.equal(encounter.lastReleasedItems.length, 0);
+
+  encounter.update(crossingDt(encounter, 2), gameState);
+  assert.equal(encounter.drops.length, 1);
+  assert.equal(encounter.drops[0].row, 2);
+});
+
+test("repeated updates near the same cooler row do not duplicate a release", () => {
+  const encounter = dumpingEncounter("top", [0]);
+  const gameState = createGameState();
+
+  encounter.update(crossingDt(encounter, 0), gameState);
+  const releasedCount = encounter.lastReleasedItems.length;
+  encounter.update(0.001, gameState);
+  encounter.releaseCrossing(obstacleRowCenter(0), obstacleRowCenter(0) + 0.1);
+
+  assert.equal(releasedCount, 1);
+  assert.equal(encounter.lastReleasedItems.length, 1);
+  assert.equal(encounter.drops.length, 1);
+});
+
+test("large cooler frame steps release only the current crossing and skip stale rows", () => {
+  const encounter = dumpingEncounter("top", [0, 1, 2]);
+  const gameState = createGameState();
+  const dt = (obstacleRowCenter(2) - encounter.releasePoint().y) / CONFIG.COOLER_BOAT_VERTICAL_SPEED + 0.001;
+
+  encounter.update(dt, gameState);
+
+  assert.equal(encounter.drops.length, 1);
+  assert.equal(encounter.drops[0].row, 2);
+  assert.equal(encounter.releaseIndex, 3);
+});
+
+test("swept crossing detection catches normal frame-rate variations", () => {
+  const encounter = dumpingEncounter("top", [1]);
+  const gameState = createGameState();
+  const targetY = obstacleRowCenter(1);
+
+  while (encounter.releasePoint().y < targetY && encounter.lastReleasedItems.length === 0) {
+    encounter.update(1 / 24, gameState);
+  }
+
+  assert.equal(encounter.lastReleasedItems.length, 1);
+  assert.equal(encounter.drops[0].row, 1);
+  assert.equal(encounter.drops[0].startY, targetY);
+});
+
+test("cooler boat keeps moving at configured speed while releasing", () => {
+  const encounter = dumpingEncounter("top", [0]);
+  const gameState = createGameState();
+  const beforeY = encounter.y;
+  const dt = 0.02;
+
+  encounter.update(dt, gameState);
+
+  assert.equal(encounter.y, beforeY + CONFIG.COOLER_BOAT_VERTICAL_SPEED * dt);
+});
+
+test("cooler release plans are ordered by boat travel direction", () => {
+  const topPlan = createCoolerWavePlan({ side: "top", waveIndex: 0, random: () => 0 });
+  const bottomPlan = createCoolerWavePlan({ side: "bottom", waveIndex: 0, random: () => 0 });
+
+  assert.deepEqual(topPlan.items.map(({ row }) => row), [...topPlan.items.map(({ row }) => row)].sort((a, b) => a - b));
+  assert.deepEqual(bottomPlan.items.map(({ row }) => row), [...bottomPlan.items.map(({ row }) => row)].sort((a, b) => b - a));
+});
+
+test("sequential cooler releases naturally form a diagonal as earlier items move left", () => {
+  const encounter = dumpingEncounter("top", [0, 1]);
+  const gameState = createGameState();
+
+  encounter.update(crossingDt(encounter, 0), gameState);
+  encounter.update(CONFIG.COOLER_DROP_DURATION_SECONDS, gameState);
+  gameState.obstacles.update(0.05, 120, 300, { pauseSpawns: true });
+
+  encounter.update(crossingDt(encounter, 1), gameState);
+  encounter.update(CONFIG.COOLER_DROP_DURATION_SECONDS, gameState);
+
+  const [earlier, later] = gameState.obstacles.encounterObstacles;
+  assert.equal(earlier.row, 0);
+  assert.equal(later.row, 1);
+  assert.ok(earlier.x < later.x);
 });
 
 test("ordinary obstacle spawning is suspended during cooler encounter and grace period", () => {
@@ -207,10 +341,10 @@ test("restart and game-over cleanup clear every cooler timer and object", () => 
   encounter.phase = COOLER_PHASES.PREPARING_WAVE;
   encounter.beginDumpingWave();
   encounter.update(0.01, gameState);
-  encounter.update(CONFIG.COOLER_DROP_DURATION_SECONDS, gameState);
+  encounter.update(CONFIG.COOLER_DROP_DURATION_SECONDS * 0.6, gameState);
 
   assert.notEqual(encounter.phase, COOLER_PHASES.WAITING);
-  assert.ok(gameState.obstacles.encounterObstacles.length > 0);
+  assert.ok(encounter.drops.length > 0);
   assert.ok(encounter.activeWave);
 
   encounter.cleanup(gameState);
@@ -225,6 +359,17 @@ test("restart and game-over cleanup clear every cooler timer and object", () => 
   assert.deepEqual(encounter.drops, []);
   assert.deepEqual(encounter.lastReleasedItems, []);
   assert.deepEqual(gameState.obstacles.encounterObstacles, []);
+});
+
+test("cooler dumped items use curated shared-row pattern definitions", () => {
+  const gate = createCoolerWavePlan({ side: "top", waveIndex: 0, random: () => 0 });
+  const finale = createCoolerWavePlan({ side: "bottom", waveIndex: 2, previousPattern: gate.pattern, random: () => 0 });
+
+  assert.equal([COOLER_WAVE_PATTERNS.GAP_LINE, COOLER_WAVE_PATTERNS.SCATTER].includes(gate.pattern), true);
+  assert.equal(finale.pattern, COOLER_WAVE_PATTERNS.FINALE);
+  assert.equal(gate.items.every(({ row }) => Number.isInteger(row)), true);
+  assert.equal(finale.items.every(({ row, y }) => y === obstacleRowCenter(row)), true);
+  assert.ok(finale.items.length >= gate.items.length);
 });
 
 function createGameState() {
@@ -243,6 +388,32 @@ function gameStateAt(elapsedMs) {
     assets: createAssets(),
     obstacles: new ObstacleManager()
   };
+}
+
+function dumpingEncounter(side, rows) {
+  const encounter = new CoolerFishermanEncounter(() => 0);
+  encounter.x = CONFIG.FISHERMAN_STOP_X;
+  encounter.y = CONFIG.COOLER_ATTACK_POSITIONS[side];
+  encounter.targetY = CONFIG.COOLER_ATTACK_POSITIONS[side === "top" ? "bottom" : "top"];
+  encounter.phase = COOLER_PHASES.DUMPING_WAVE;
+  encounter.activeWave = {
+    waveNumber: 1,
+    side,
+    pattern: "test-cooler-wave",
+    gap: { top: obstacleRowCenter(3), bottom: obstacleRowCenter(4) },
+    items: rows.map((row) => ({
+      item: COOLER_THROWABLES[0],
+      row,
+      y: obstacleRowCenter(row)
+    }))
+  };
+  encounter.releaseIndex = 0;
+  encounter.processedRowCrossings = new Set();
+  return encounter;
+}
+
+function crossingDt(encounter, row) {
+  return Math.abs(obstacleRowCenter(row) - encounter.releasePoint().y) / CONFIG.COOLER_BOAT_VERTICAL_SPEED + 0.001;
 }
 
 function runUntil(encounter, gameState, done, phasesSeen) {

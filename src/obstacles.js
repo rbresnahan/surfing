@@ -1,6 +1,9 @@
 import { CONFIG } from "./config.js";
 import { centeredRect, rectsOverlap } from "./collision.js";
 import { DODGE_OBSTACLE_TYPES, selectDodgeObstacleType } from "./dodgeObstacles.js";
+import { obstacleRowCenter, isValidObstacleRow, nearestObstacleRow } from "./rowGeometry.js";
+import { instantiatePattern, selectPatternForTime } from "./obstaclePatterns.js";
+import { validateObstacleTimeline } from "./patternValidator.js";
 
 export function obstacleSpeedForTime(seconds) {
   const t = Math.max(0, Math.min(1, seconds / CONFIG.DIFFICULTY_RAMP_SECONDS));
@@ -45,19 +48,24 @@ export function createObstacleEvent({
   random = Math.random,
   validator = isEventFair
 }) {
-  const speed = obstacleSpeedForTime(elapsed);
+  const baseSpeed = obstacleSpeedForTime(elapsed);
   const weights = eventWeightsForTime(elapsed);
-  const type = random() < weights.single ? "single" : "double";
   const spawnX = CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING;
+  let previousPatternId = null;
 
   for (let attempt = 0; attempt < CONFIG.HEAD_SPAWN_PLACEMENT_RETRIES; attempt += 1) {
-    const candidate = type === "single"
-      ? createSingle(spawnX, speed, random)
-      : createDouble(spawnX, speed, random);
+    const includeIds = random() < weights.single
+      ? ["single-low", "single-high", "single-center"]
+      : null;
+    const template = selectPatternForTime(elapsed, { random, previousPatternId, includeIds });
+    const pattern = instantiatePattern(template, { random });
+    const speed = baseSpeed * pattern.speedMultiplier;
+    const candidate = createPatternEvent(pattern, spawnX, speed, random);
 
     if (validator(candidate, surferY, speed, activeHeads) && isEventPlacementClear(candidate, activeHeads)) {
       return { ...candidate, attemptCount: attempt + 1 };
     }
+    previousPatternId = pattern.id;
   }
 
   return null;
@@ -70,18 +78,11 @@ export function canSpawnNextEvent(activeEvent) {
 
 export function isEventFair(event, surferY, speed) {
   if (!event.heads.every(isHeadInsidePlayableY)) return false;
-
-  const playerX = CONFIG.SURF_BOUNDS.left + (CONFIG.SURF_BOUNDS.right - CONFIG.SURF_BOUNDS.left) * 0.35;
-  const nearestX = Math.min(...event.heads.map((head) => head.x));
-  const horizontalDistance = Math.max(1, nearestX - playerX);
-  const timeToReachPlayer = horizontalDistance / speed;
-  const verticalReach = CONFIG.SURFER_SPEED * timeToReachPlayer;
-  const reachableTop = Math.max(CONFIG.SURF_BOUNDS.top, surferY - verticalReach);
-  const reachableBottom = Math.min(CONFIG.SURF_BOUNDS.bottom, surferY + verticalReach);
-  const surferHalf = (CONFIG.SURFER_DISPLAY_HEIGHT * CONFIG.SURFER_HITBOX_SCALE_Y) / 2;
-  const safeIntervals = buildSafeIntervals(event.heads, surferHalf);
-
-  return safeIntervals.some(([top, bottom]) => bottom >= reachableTop && top <= reachableBottom);
+  return validateObstacleTimeline(event.heads, {
+    speed,
+    surferY,
+    duration: event.validationDuration
+  }).valid;
 }
 
 export function hasMinimumHeadSeparation(head, otherHead) {
@@ -179,12 +180,15 @@ export class ObstacleManager {
   }
 
   addObstacle(obstacle) {
+    const row = isValidObstacleRow(obstacle.row) ? obstacle.row : nearestObstacleRow(obstacle.y);
     this.encounterObstacles.push({
       type: "encounter",
       source: obstacle.source ?? null,
       assetKey: obstacle.assetKey,
       x: obstacle.x,
-      y: obstacle.y,
+      y: obstacle.y ?? obstacleRowCenter(row),
+      row,
+      patternId: obstacle.patternId ?? null,
       width: obstacle.width,
       height: obstacle.height,
       collisionWidth: obstacle.collisionWidth ?? obstacle.width,
@@ -245,11 +249,21 @@ export class ObstacleManager {
 
   centers() {
     const headCenters = this.activeEvent
-      ? this.activeEvent.heads.filter((head) => !head.resolved).map((head) => ({ x: head.x, y: head.y }))
+      ? this.activeEvent.heads.filter((head) => !head.resolved).map((head) => ({
+        x: head.x,
+        y: head.y,
+        row: head.row,
+        patternId: head.patternId ?? this.activeEvent.patternId
+      }))
       : [];
     const encounterCenters = this.encounterObstacles
       .filter((obstacle) => !obstacle.resolved)
-      .map((obstacle) => ({ x: obstacle.x, y: obstacle.y }));
+      .map((obstacle) => ({
+        x: obstacle.x,
+        y: obstacle.y,
+        row: obstacle.row,
+        patternId: obstacle.patternId
+      }));
     return [...headCenters, ...encounterCenters];
   }
 
@@ -306,43 +320,41 @@ function obstacleImage(assets, obstacle) {
   return assets.dodgeObstacles?.[obstacle.assetKey] ?? assets.throwables?.[obstacle.assetKey] ?? assets[obstacle.assetKey] ?? fallback;
 }
 
-function createSingle(spawnX, speed, random) {
+export function createPatternEvent(pattern, spawnX, speed, random = Math.random) {
   return {
-    type: "single",
+    type: pattern.obstacles.length === 1 ? "single" : "pattern",
+    patternId: pattern.id,
     speed,
     threatening: true,
     collided: false,
-    heads: [createDodgeObstacle(spawnX, randomY(random), random)]
+    validationDuration: (spawnX - CONFIG.OBSTACLE_SUBMERGE_END_X) / Math.max(1, speed) +
+      Math.max(0, ...pattern.obstacles.map((obstacle) => obstacle.timeOffset)) + 0.25,
+    heads: pattern.obstacles.map((obstacle) => {
+      const typePool = obstacle.typeRestrictions
+        ? DODGE_OBSTACLE_TYPES.filter((type) => obstacle.typeRestrictions.includes(type.id))
+        : DODGE_OBSTACLE_TYPES;
+      return createDodgeObstacle(
+        spawnX + obstacle.timeOffset * speed,
+        obstacleRowCenter(obstacle.row),
+        random,
+        selectDodgeObstacleType(random, typePool),
+        { row: obstacle.row, patternId: pattern.id, timeOffset: obstacle.timeOffset }
+      );
+    })
   };
 }
 
-function createDouble(spawnX, speed, random) {
-  const closePair = random() < 0.45;
-  const yA = randomY(random);
-  const gap = closePair ? randomBetween(42, 74, random) : randomBetween(120, 190, random);
-  const direction = random() < 0.5 ? -1 : 1;
-  const yB = clampY(yA + gap * direction);
-  const offset = randomBetween(-24, 38, random);
-
-  return {
-    type: "double",
-    speed,
-    threatening: true,
-    collided: false,
-    heads: [
-      createDodgeObstacle(spawnX, yA, random),
-      createDodgeObstacle(spawnX + offset, yB, random)
-    ]
-  };
-}
-
-export function createDodgeObstacle(x, y, random = Math.random, type = selectDodgeObstacleType(random)) {
+export function createDodgeObstacle(x, y, random = Math.random, type = selectDodgeObstacleType(random), options = {}) {
+  const row = isValidObstacleRow(options.row) ? options.row : nearestObstacleRow(y);
   return {
     type: "dodge",
     obstacleTypeId: type.id,
     assetKey: type.assetKey,
     x,
-    y,
+    y: options.y ?? y,
+    row,
+    patternId: options.patternId ?? null,
+    timeOffset: options.timeOffset ?? 0,
     width: type.render.width,
     height: type.render.height,
     collisionWidth: type.hitbox.width,
@@ -368,60 +380,11 @@ function expandedRenderBounds(head) {
   );
 }
 
-function randomY(random) {
-  const maxHeight = Math.max(...DODGE_OBSTACLE_TYPES.map((type) => type.render.height));
-  return randomBetween(
-    CONFIG.SURF_BOUNDS.top + maxHeight / 2,
-    CONFIG.SURF_BOUNDS.bottom - maxHeight / 2,
-    random
-  );
-}
-
 function isHeadInsidePlayableY(head) {
   return (
     head.y - head.height / 2 >= CONFIG.SURF_BOUNDS.top &&
     head.y + head.height / 2 <= CONFIG.SURF_BOUNDS.bottom
   );
-}
-
-function buildSafeIntervals(heads, surferHalf) {
-  const blocked = heads
-    .map((head) => {
-      const obstacleHalf = (head.collisionHeight * head.hitboxScaleY) / 2;
-      return [head.y - obstacleHalf - surferHalf, head.y + obstacleHalf + surferHalf];
-    })
-    .sort((a, b) => a[0] - b[0]);
-
-  const merged = [];
-  for (const interval of blocked) {
-    const last = merged[merged.length - 1];
-    if (!last || interval[0] > last[1]) {
-      merged.push([...interval]);
-    } else {
-      last[1] = Math.max(last[1], interval[1]);
-    }
-  }
-
-  const safe = [];
-  let cursor = CONFIG.SURF_BOUNDS.top;
-  for (const [top, bottom] of merged) {
-    if (top > cursor) safe.push([cursor, top]);
-    cursor = Math.max(cursor, bottom);
-  }
-  if (cursor < CONFIG.SURF_BOUNDS.bottom) safe.push([cursor, CONFIG.SURF_BOUNDS.bottom]);
-  return safe.filter(([top, bottom]) => bottom - top >= surferHalf);
-}
-
-function clampY(y) {
-  const maxHeight = Math.max(...DODGE_OBSTACLE_TYPES.map((type) => type.render.height));
-  return Math.max(
-    CONFIG.SURF_BOUNDS.top + maxHeight / 2,
-    Math.min(CONFIG.SURF_BOUNDS.bottom - maxHeight / 2, y)
-  );
-}
-
-function randomBetween(min, max, random) {
-  return min + (max - min) * random();
 }
 
 function lerp(a, b, t) {
