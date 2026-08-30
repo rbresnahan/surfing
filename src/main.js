@@ -39,7 +39,9 @@ let backgroundMusic = createBackgroundMusicController(null);
 loadAssets()
   .then((loaded) => {
     assets = loaded;
-    backgroundMusic = createBackgroundMusicController(assets.backgroundMusic);
+    backgroundMusic = createBackgroundMusicController(assets.backgroundMusic, {
+      rowboatFinaleAudio: assets.rowboatFinaleMusic
+    });
     requestAnimationFrame(loop);
   })
   .catch((error) => {
@@ -144,7 +146,8 @@ function buildEncounterGameState() {
     elapsedMs: survivalTime * 1000,
     surfer,
     obstacles,
-    assets
+    assets,
+    music: backgroundMusic
   };
 }
 

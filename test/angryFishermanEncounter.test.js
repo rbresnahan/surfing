@@ -54,13 +54,17 @@ test("every throwable has a valid airborne and water asset mapping", async () =>
 
 test("background music asset is available in the audio asset directory", async () => {
   assert.equal(AUDIO_FILES.backgroundMusic, "sunset-circuit.mp3");
+  assert.equal(AUDIO_FILES.rowboatFinaleMusic, "cartridge-drift.mp3");
   await access(new URL(`../assets/audio/${AUDIO_FILES.backgroundMusic}`, import.meta.url));
+  await access(new URL(`../assets/audio/${AUDIO_FILES.rowboatFinaleMusic}`, import.meta.url));
 });
 
 test("angry fisherman finale assets are available under their final names", async () => {
   assert.equal(FISHERMAN_FILES.angryFisherman, "angry-fisherman.png");
   assert.equal(FISHERMAN_FILES.angryFishermanToss, "angry-fisherman-toss.png");
   assert.equal(FISHERMAN_FILES.angryFishermanLoss, "angry-fisherman-loss.png");
+  assert.equal(FISHERMAN_FILES.angryFishermanCooler, "angry-fisherman-cooler.png");
+  assert.equal(FISHERMAN_FILES.angryFishermanCoolerDump, "angry-fisherman-cooler-dump.png");
 
   for (const file of Object.values(FISHERMAN_FILES)) {
     await access(new URL(`../assets/${file}`, import.meta.url));
@@ -368,6 +372,44 @@ test("loss sprite does not appear when the wallet is released", () => {
   assert.equal(encounter.state, FISHERMAN_STATES.THROWING);
 });
 
+test("wallet release triggers the rowboat music transition exactly once", () => {
+  const encounter = new AngryFishermanEncounter(() => 0);
+  const gameState = createGameState();
+  let transitionCount = 0;
+  gameState.music = {
+    transitionToRowboatFinale() {
+      transitionCount += 1;
+    }
+  };
+  encounter.start();
+  encounter.x = CONFIG.FISHERMAN_STOP_X;
+  encounter.throwOrder = ["wallet"];
+
+  encounter.throwNextItem(gameState);
+  encounter.update(0.01, gameState);
+
+  assert.equal(transitionCount, 1);
+  assert.equal(encounter.walletState, "AIRBORNE");
+  assert.equal(encounter.state, FISHERMAN_STATES.THROWING);
+});
+
+test("ordinary thrown items do not trigger the rowboat music transition", () => {
+  const encounter = new AngryFishermanEncounter(() => 0);
+  const gameState = createGameState();
+  let transitionCount = 0;
+  gameState.music = {
+    transitionToRowboatFinale() {
+      transitionCount += 1;
+    }
+  };
+  encounter.start();
+  encounter.throwOrder = ["bottle"];
+
+  encounter.throwNextItem(gameState);
+
+  assert.equal(transitionCount, 0);
+});
+
 test("wallet landing creates water wallet and switches to loss sprite in the same transition", () => {
   const { encounter, gameState } = createWalletFinaleEncounter();
   const ctx = createMockContext();
@@ -509,6 +551,32 @@ test("slow finale exit eventually leaves the screen and completes", () => {
 
   assert.equal(encounter.state, FISHERMAN_STATES.COMPLETE);
   assert.equal(encounter.isComplete(), true);
+});
+
+test("rowboat finale music is not stopped when the encounter completes", () => {
+  const encounter = new AngryFishermanEncounter(() => 0);
+  const gameState = createGameState();
+  let transitionCount = 0;
+  let stopCount = 0;
+  gameState.music = {
+    transitionToRowboatFinale() {
+      transitionCount += 1;
+    },
+    stop() {
+      stopCount += 1;
+    }
+  };
+  encounter.start();
+  encounter.x = CONFIG.FISHERMAN_STOP_X;
+  encounter.throwOrder = ["wallet"];
+  encounter.throwNextItem(gameState);
+  encounter.update(encounter.projectiles[0].duration, gameState);
+  encounter.update(CONFIG.FISHERMAN_WALLET_LOSS_PAUSE_SECONDS, gameState);
+  encounter.update(10, gameState);
+
+  assert.equal(encounter.isComplete(), true);
+  assert.equal(transitionCount, 1);
+  assert.equal(stopCount, 0);
 });
 
 test("restart cleanup resets encounter wallet finale state", () => {

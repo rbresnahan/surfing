@@ -146,7 +146,7 @@ export class AngryFishermanEncounter {
     if (this.state === FISHERMAN_STATES.WINDUP) {
       this.timer -= dt;
       if (this.timer <= 0) {
-        this.throwNextItem();
+        this.throwNextItem(gameState);
       }
       return;
     }
@@ -273,7 +273,7 @@ export class AngryFishermanEncounter {
     this.y += Math.sign(delta) * step;
   }
 
-  throwNextItem() {
+  throwNextItem(gameState = null) {
     const item = throwableById(this.throwOrder[this.ammoIndex]);
     this.ammoIndex += 1;
     const projectile = createProjectile(item, this.x, this.y, {
@@ -281,6 +281,7 @@ export class AngryFishermanEncounter {
     });
     if (item.id === WALLET_THROWABLE_ID) {
       this.walletState = WalletState.AIRBORNE;
+      gameState?.music?.transitionToRowboatFinale?.();
     }
     this.projectiles.push(projectile);
     this.timer = CONFIG.FISHERMAN_POST_THROW_DELAY_MS / 1000;

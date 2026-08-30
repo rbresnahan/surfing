@@ -20,7 +20,9 @@ import {
 } from "../src/obstacles.js";
 
 const HEAD_TYPE = getDodgeObstacleType("head");
-const TUBE_TYPE = getDodgeObstacleType("tube");
+const NOODLE_GIRL_TYPE = getDodgeObstacleType("noodle-girl");
+const TUBE_GIRL_TYPE = getDodgeObstacleType("tube-girl");
+const TUBE_WOMAN_TYPE = getDodgeObstacleType("tube-woman");
 
 test("single events always have a valid Y position", () => {
   for (let i = 0; i < 50; i += 1) {
@@ -225,76 +227,120 @@ test("single and double weights stay within requested limits", () => {
   assert.ok(end.double <= CONFIG.DOUBLE_WEIGHT_MAX);
 });
 
-test("runtime source does not reference the removed head asset", async () => {
+test("runtime source does not reference obsolete dodge assets", async () => {
   const sourceFiles = await sourceFilePaths();
   const contents = await Promise.all(sourceFiles.map((path) => readFile(path, "utf8")));
-  const removedHeadAsset = "assets/" + "head.png";
+  const obsoleteDodgeAssets = [
+    ["assets/", "head", ".png"].join(""),
+    ["assets/", "dodge", "-tube", ".png"].join("")
+  ];
 
-  assert.equal(contents.some((content) => content.includes(removedHeadAsset)), false);
+  assert.equal(contents.some((content) => obsoleteDodgeAssets.some((asset) => content.includes(asset))), false);
 });
 
-test("dodge obstacle registry includes the renamed head and tube assets", () => {
+test("dodge obstacle registry includes the current active dodge sprites", () => {
   assert.deepEqual(
     DODGE_OBSTACLE_TYPES.map((type) => type.assetKey).sort(),
-    ["dodge-head", "dodge-tube"]
+    ["dodge-head", "dodge-noodle-girl", "dodge-tube-girl", "dodge-tube-woman"]
   );
   assert.deepEqual(
     DODGE_OBSTACLE_TYPES.map((type) => type.file).sort(),
-    ["dodge-head.png", "dodge-tube.png"]
+    ["dodge-head.png", "dodge-noodle-girl.png", "dodge-tube-girl.png", "dodge-tube-woman.png"]
   );
   assert.equal(DODGE_OBSTACLE_TYPES.every((type) => type.spawnWeight === 1), true);
 });
 
+test("each registered dodge obstacle keeps its own dimensions, spacing, and collision data", () => {
+  const seenIds = new Set();
+  const seenAssets = new Set();
+
+  for (const type of DODGE_OBSTACLE_TYPES) {
+    assert.ok(type.id);
+    assert.ok(type.assetKey);
+    assert.ok(type.file.endsWith(".png"));
+    assert.ok(type.render.width > 0);
+    assert.ok(type.render.height > 0);
+    assert.ok(type.hitbox.width > 0);
+    assert.ok(type.hitbox.height > 0);
+    assert.ok(type.visualGap.x > 0);
+    assert.ok(type.visualGap.y > 0);
+    assert.equal(seenIds.has(type.id), false);
+    assert.equal(seenAssets.has(type.assetKey), false);
+    seenIds.add(type.id);
+    seenAssets.add(type.assetKey);
+  }
+});
+
 test("weighted dodge obstacle selection returns only registered types deterministically", () => {
   assert.equal(selectDodgeObstacleType(() => 0).id, "head");
-  assert.equal(selectDodgeObstacleType(() => 0.49).id, "head");
-  assert.equal(selectDodgeObstacleType(() => 0.5).id, "tube");
-  assert.equal(selectDodgeObstacleType(() => 0.99).id, "tube");
+  assert.equal(selectDodgeObstacleType(() => 0.24).id, "head");
+  assert.equal(selectDodgeObstacleType(() => 0.25).id, "noodle-girl");
+  assert.equal(selectDodgeObstacleType(() => 0.49).id, "noodle-girl");
+  assert.equal(selectDodgeObstacleType(() => 0.5).id, "tube-girl");
+  assert.equal(selectDodgeObstacleType(() => 0.74).id, "tube-girl");
+  assert.equal(selectDodgeObstacleType(() => 0.75).id, "tube-woman");
+  assert.equal(selectDodgeObstacleType(() => 0.99).id, "tube-woman");
 });
 
-test("ordinary obstacle spawning can deterministically select either registered type", () => {
-  const headEvent = createObstacleEvent({ surferY: 300, elapsed: 0, random: fixedRandom([0.1, 0.5, 0]) });
-  const tubeEvent = createObstacleEvent({ surferY: 300, elapsed: 0, random: fixedRandom([0.1, 0.5, 0.99]) });
+test("ordinary obstacle spawning can deterministically select every registered type", () => {
+  const samples = [
+    [0, "head", "dodge-head"],
+    [0.25, "noodle-girl", "dodge-noodle-girl"],
+    [0.5, "tube-girl", "dodge-tube-girl"],
+    [0.75, "tube-woman", "dodge-tube-woman"]
+  ];
 
-  assert.equal(headEvent.heads[0].obstacleTypeId, "head");
-  assert.equal(headEvent.heads[0].assetKey, "dodge-head");
-  assert.equal(tubeEvent.heads[0].obstacleTypeId, "tube");
-  assert.equal(tubeEvent.heads[0].assetKey, "dodge-tube");
+  for (const [selection, id, assetKey] of samples) {
+    const event = createObstacleEvent({ surferY: 300, elapsed: 0, random: fixedRandom([0.1, 0.5, selection]) });
+
+    assert.equal(event.heads[0].obstacleTypeId, id);
+    assert.equal(event.heads[0].assetKey, assetKey);
+  }
 });
 
-test("a spawned obstacle retains its selected type during update, collision, and draw", () => {
-  const manager = new ObstacleManager();
-  manager.activeEvent = fakeEvent([{ x: 500, y: 300, type: TUBE_TYPE }], 100);
-  const obstacle = manager.activeEvent.heads[0];
-  const ctx = new FakeContext();
+test("spawned obstacles retain their selected type during update, collision, and draw", () => {
+  for (const type of DODGE_OBSTACLE_TYPES) {
+    const manager = new ObstacleManager();
+    manager.activeEvent = fakeEvent([{ x: 500, y: 300, type }], 100);
+    const obstacle = manager.activeEvent.heads[0];
+    const ctx = new FakeContext();
 
-  manager.update(0.1, 12, 300);
-  const [hitbox] = manager.hitboxes();
-  manager.draw(ctx, {
-    dodgeObstacles: {
-      "dodge-head": image("dodge-head"),
-      "dodge-tube": image("dodge-tube")
-    }
-  });
+    manager.update(0.1, 12, 300);
+    const [hitbox] = manager.hitboxes();
+    manager.draw(ctx, {
+      dodgeObstacles: Object.fromEntries(DODGE_OBSTACLE_TYPES.map((registered) => [
+        registered.assetKey,
+        image(registered.assetKey)
+      ]))
+    });
 
-  assert.equal(obstacle.obstacleTypeId, "tube");
-  assert.equal(obstacle.assetKey, "dodge-tube");
-  assert.equal(hitbox.width, obstacle.collisionWidth * obstacle.hitboxScaleX);
-  assert.equal(ctx.drawnImage.name, "dodge-tube");
+    assert.equal(obstacle.obstacleTypeId, type.id);
+    assert.equal(obstacle.assetKey, type.assetKey);
+    assert.equal(hitbox.width, obstacle.collisionWidth * obstacle.hitboxScaleX);
+    assert.equal(hitbox.height, obstacle.collisionHeight * obstacle.hitboxScaleY);
+    assert.equal(ctx.drawnImage.name, type.assetKey);
+    assert.equal(ctx.drawnWidth, type.render.width);
+    assert.equal(ctx.drawnHeight, type.render.height);
+  }
 });
 
 test("each dodge obstacle preserves its configured source aspect ratio", () => {
-  const head = createDodgeObstacle(400, 300, Math.random, HEAD_TYPE);
-  const tube = createDodgeObstacle(400, 300, Math.random, TUBE_TYPE);
+  const expectedAspects = new Map([
+    ["head", 1448 / 1086],
+    ["noodle-girl", 1537 / 1023],
+    ["tube-girl", 1050 / 1498],
+    ["tube-woman", 1254 / 1254]
+  ]);
 
-  assert.equal(head.width / head.height, HEAD_TYPE.render.width / HEAD_TYPE.render.height);
-  assert.equal(tube.width / tube.height, TUBE_TYPE.render.width / TUBE_TYPE.render.height);
-  assert.notEqual(head.width / head.height, tube.width / tube.height);
+  for (const type of DODGE_OBSTACLE_TYPES) {
+    const obstacle = createDodgeObstacle(400, 300, Math.random, type);
+    assert.equal(obstacle.width / obstacle.height, expectedAspects.get(type.id));
+  }
 });
 
 test("each dodge obstacle type carries its own collision configuration", () => {
   const head = createDodgeObstacle(400, 300, Math.random, HEAD_TYPE);
-  const tube = createDodgeObstacle(400, 300, Math.random, TUBE_TYPE);
+  const tubeWoman = createDodgeObstacle(400, 300, Math.random, TUBE_WOMAN_TYPE);
 
   assert.notDeepEqual(
     {
@@ -304,26 +350,26 @@ test("each dodge obstacle type carries its own collision configuration", () => {
       scaleY: head.hitboxScaleY
     },
     {
-      width: tube.collisionWidth,
-      height: tube.collisionHeight,
-      scaleX: tube.hitboxScaleX,
-      scaleY: tube.hitboxScaleY
+      width: tubeWoman.collisionWidth,
+      height: tubeWoman.collisionHeight,
+      scaleX: tubeWoman.hitboxScaleX,
+      scaleY: tubeWoman.hitboxScaleY
     }
   );
 });
 
 test("mixed obstacle groups respect the configured visual gap", () => {
   const head = createDodgeObstacle(400, 300, Math.random, HEAD_TYPE);
-  const tube = createDodgeObstacle(
-    400 + (head.width + tubeVisualWidth()) / 2 + Math.max(head.visualGapX, TUBE_TYPE.visualGap.x) - 0.1,
+  const tubeWoman = createDodgeObstacle(
+    400 + (head.width + tubeWomanVisualWidth()) / 2 + Math.max(head.visualGapX, TUBE_WOMAN_TYPE.visualGap.x) - 0.1,
     300,
     Math.random,
-    TUBE_TYPE
+    TUBE_WOMAN_TYPE
   );
-  const clearTube = { ...tube, x: tube.x + 0.1 };
+  const clearTubeWoman = { ...tubeWoman, x: tubeWoman.x + 0.1 };
 
-  assert.equal(isEventPlacementClear(fakeEventFromObstacles([head, tube])), false);
-  assert.equal(isEventPlacementClear(fakeEventFromObstacles([head, clearTube])), true);
+  assert.equal(isEventPlacementClear(fakeEventFromObstacles([head, tubeWoman])), false);
+  assert.equal(isEventPlacementClear(fakeEventFromObstacles([head, clearTubeWoman])), true);
 });
 
 test("mixed groups still reject impossible walls", () => {
@@ -331,7 +377,8 @@ test("mixed groups still reject impossible walls", () => {
   const playerX = CONFIG.SURF_BOUNDS.left + (CONFIG.SURF_BOUNDS.right - CONFIG.SURF_BOUNDS.left) * 0.35;
   const event = fakeEventFromObstacles([
     createDodgeObstacle(playerX + 1, surferY - 18, Math.random, HEAD_TYPE),
-    createDodgeObstacle(playerX + 1, surferY + 18, Math.random, TUBE_TYPE)
+    createDodgeObstacle(playerX + 1, surferY, Math.random, NOODLE_GIRL_TYPE),
+    createDodgeObstacle(playerX + 1, surferY + 18, Math.random, TUBE_GIRL_TYPE)
   ], 999);
 
   assert.equal(isEventFair(event, surferY, event.speed), false);
@@ -515,8 +562,8 @@ function createBlockingSpawnColumn() {
   return heads;
 }
 
-function tubeVisualWidth() {
-  return TUBE_TYPE.render.width;
+function tubeWomanVisualWidth() {
+  return TUBE_WOMAN_TYPE.render.width;
 }
 
 async function sourceFilePaths() {
