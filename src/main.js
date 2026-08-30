@@ -1,9 +1,7 @@
 import { loadAssets } from "./assets.js";
 import { createBackgroundMusicController } from "./audio.js";
 import { CONFIG, VERSION } from "./config.js";
-import { AngryFishermanEncounter } from "./angryFishermanEncounter.js";
-import { CoolerFishermanEncounter } from "./coolerFishermanEncounter.js";
-import { EncounterManager } from "./encounterManager.js";
+import { createEncounterManager } from "./encounterRegistry.js";
 import { Input } from "./input.js";
 import { ObstacleManager } from "./obstacles.js";
 import { rectsOverlap } from "./collision.js";
@@ -24,9 +22,7 @@ const GameState = {
 const input = new Input();
 const surfer = new Surfer();
 const obstacles = new ObstacleManager();
-const encounters = new EncounterManager();
-encounters.register(new AngryFishermanEncounter());
-encounters.register(new CoolerFishermanEncounter());
+const encounters = createEncounterManager();
 let assets = null;
 let state = GameState.READY;
 let lastTime = performance.now();

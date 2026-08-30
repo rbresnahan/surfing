@@ -1,4 +1,4 @@
-import { CONFIG } from "./config.js";
+import { CONFIG, encounterConfig } from "./config.js";
 import { centeredRect } from "./collision.js";
 import { nearestObstacleRow, obstacleRowCenter } from "./rowGeometry.js";
 
@@ -110,19 +110,23 @@ const WalletState = {
 export class AngryFishermanEncounter {
   constructor(random = () => 0) {
     this.id = "angry-fisherman";
+    const config = encounterConfig(this.id);
     this.type = "major";
     this.exclusive = true;
     this.pauseNormalSpawns = true;
+    this.startTimeMs = config?.startTimeMs ?? CONFIG.FIRST_ENCOUNTER_TIME_MS;
+    this.difficultyStageOnComplete = config?.difficultyStageOnComplete ?? null;
     this.random = random;
     this.resetInternal();
   }
 
   canStart(gameState) {
-    return gameState.elapsedMs >= CONFIG.FIRST_ENCOUNTER_TIME_MS;
+    return gameState.elapsedMs >= this.startTimeMs;
   }
 
-  start() {
+  start(gameState = null) {
     this.resetInternal();
+    this.lastGameState = gameState;
     this.throwOrder = createThrowOrder(this.random);
     this.throwRows = [...FISHERMAN_THROW_ROWS];
     this.state = FISHERMAN_STATES.ENTERING;
@@ -131,6 +135,7 @@ export class AngryFishermanEncounter {
   }
 
   update(dt, gameState) {
+    this.lastGameState = gameState;
     this.projectiles = this.projectiles.filter((projectile) => updateProjectile(projectile, dt, gameState));
 
     if (this.state === FISHERMAN_STATES.ENTERING) {
@@ -231,7 +236,9 @@ export class AngryFishermanEncounter {
     return this.state === FISHERMAN_STATES.COMPLETE;
   }
 
-  cleanup() {
+  cleanup(gameState = null) {
+    const cleanupState = gameState ?? this.lastGameState;
+    cleanupState?.obstacles?.clearEncounterObstaclesBySource?.(this.id);
     this.resetInternal();
   }
 
@@ -254,6 +261,7 @@ export class AngryFishermanEncounter {
     this.walletLandedThisFrame = false;
     this.lossSpriteActive = false;
     this.projectiles = [];
+    this.lastGameState = null;
     this.boatWidth = CONFIG.FISHERMAN_DISPLAY_WIDTH;
   }
 
@@ -346,6 +354,7 @@ export function updateProjectile(projectile, dt, gameState) {
 
   projectile.impacted = true;
   gameState.obstacles.addObstacle({
+    source: "angry-fisherman",
     assetKey: projectile.item.waterAssetKey,
     x: projectile.landingX,
     y: projectile.landingY,

@@ -21,6 +21,7 @@ const EXPECTED_COOLER_THROWABLE_DIMENSIONS = {
   "life-ring": { waterWidth: 108, collisionWidth: 76, collisionHeight: 58 },
   sandwich: { waterWidth: 84, collisionWidth: 54, collisionHeight: 38 }
 };
+const PREVIOUS_COOLER_BOAT_VERTICAL_SPEED = 190;
 
 test("cooler encounter begins at 105 seconds and not earlier", () => {
   const encounter = new CoolerFishermanEncounter(() => 0);
@@ -46,6 +47,15 @@ test("cooler boat enters from the right and stops only after fully visible", () 
   assert.equal(encounter.phase, COOLER_PHASES.POSITIONING);
 });
 
+test("cooler row-to-row release interval is longer from the traversal speed adjustment", () => {
+  const rowInterval = obstacleRowCenter(1) - obstacleRowCenter(0);
+  const previousInterval = rowInterval / PREVIOUS_COOLER_BOAT_VERTICAL_SPEED;
+  const currentInterval = rowInterval / CONFIG.COOLER_BOAT_VERTICAL_SPEED;
+
+  assert.equal(CONFIG.COOLER_BOAT_VERTICAL_SPEED, PREVIOUS_COOLER_BOAT_VERTICAL_SPEED * 0.9);
+  assertAlmostEqual(currentInterval / previousInterval, 1 / 0.9);
+});
+
 test("first cooler attack side is deterministic and all waves alternate", () => {
   const topFirst = new CoolerFishermanEncounter(() => 0);
   const bottomFirst = new CoolerFishermanEncounter(() => 0.99);
@@ -57,6 +67,32 @@ test("first cooler attack side is deterministic and all waves alternate", () => 
   assert.deepEqual(topFirst.waveSides, ["top", "bottom", "top"]);
   assert.equal(bottomFirst.firstSide, "top");
   assert.deepEqual(bottomFirst.waveSides, ["top", "bottom", "top"]);
+});
+
+test("same inputs produce the same cooler dumping pattern", () => {
+  function dumpingPattern() {
+    const encounter = new CoolerFishermanEncounter(fixedRandom([0, 0.2, 0.8, 0.35, 0.6]));
+    const gameState = createGameState();
+    const released = [];
+    encounter.start();
+    encounter.x = CONFIG.FISHERMAN_STOP_X;
+    encounter.y = CONFIG.COOLER_ATTACK_POSITIONS.top;
+    encounter.phase = COOLER_PHASES.PREPARING_WAVE;
+    encounter.beginDumpingWave();
+
+    for (let i = 0; i < 30; i += 1) {
+      encounter.update(0.05, gameState);
+      released.push(...encounter.drops.map((drop) => `${drop.item.id}:${drop.row}:${drop.startY}`));
+      encounter.update(CONFIG.COOLER_DROP_DURATION_SECONDS, gameState);
+    }
+
+    return {
+      waves: encounter.wavePlans.map((wave) => `${wave.pattern}:${wave.side}:${wave.items.map((item) => item.row).join(",")}`),
+      released
+    };
+  }
+
+  assert.deepEqual(dumpingPattern(), dumpingPattern());
 });
 
 test("cooler encounter runs exactly three dump waves and exits right after wave 3", () => {
@@ -206,6 +242,25 @@ test("cooler items release only when the boat release point crosses their row", 
   assert.equal(encounter.drops[0].startY, rowY);
   assert.equal(encounter.drops[0].landingY, rowY);
   assert.equal(encounter.releasePoint().y >= rowY, true);
+});
+
+test("slower cooler traversal still releases at exact row alignment without an added delay", () => {
+  const encounter = dumpingEncounter("top", [0, 1]);
+  const gameState = createGameState();
+  const firstRowY = obstacleRowCenter(0);
+  const secondRowY = obstacleRowCenter(1);
+
+  encounter.update(crossingDt(encounter, 0), gameState);
+  assert.equal(encounter.drops.length, 1);
+  assert.equal(encounter.drops[0].startY, firstRowY);
+  assert.equal(encounter.releasePoint().y >= firstRowY, true);
+
+  encounter.update(CONFIG.COOLER_DROP_DURATION_SECONDS, gameState);
+  encounter.update(crossingDt(encounter, 1), gameState);
+
+  assert.equal(encounter.drops.length, 1);
+  assert.equal(encounter.drops[0].startY, secondRowY);
+  assert.equal(encounter.releasePoint().y >= secondRowY, true);
 });
 
 test("cooler item water obstacles stay on existing row centers", () => {
@@ -361,6 +416,18 @@ test("restart and game-over cleanup clear every cooler timer and object", () => 
   assert.deepEqual(gameState.obstacles.encounterObstacles, []);
 });
 
+test("completed cooler cleanup removes dumped water obstacles by source", () => {
+  const encounter = new CoolerFishermanEncounter(() => 0);
+  const gameState = createGameState();
+  gameState.obstacles.addObstacle(createWaterObstacleForTest("angry-fisherman-cooler"));
+  gameState.obstacles.addObstacle(createWaterObstacleForTest("other"));
+  encounter.phase = COOLER_PHASES.COMPLETE;
+
+  encounter.cleanup(gameState);
+
+  assert.deepEqual(gameState.obstacles.encounterObstacles.map((obstacle) => obstacle.source), ["other"]);
+});
+
 test("cooler dumped items use curated shared-row pattern definitions", () => {
   const gate = createCoolerWavePlan({ side: "top", waveIndex: 0, random: () => 0 });
   const finale = createCoolerWavePlan({ side: "bottom", waveIndex: 2, previousPattern: gate.pattern, random: () => 0 });
@@ -436,6 +503,19 @@ function createAssets() {
   };
 }
 
+function createWaterObstacleForTest(source) {
+  return {
+    source,
+    assetKey: "bottleWater",
+    x: 500,
+    y: obstacleRowCenter(2),
+    row: 2,
+    width: 60,
+    height: 30,
+    speed: 100
+  };
+}
+
 function createMockContext() {
   return {
     draws: [],
@@ -463,4 +543,8 @@ function fixedRandom(values) {
     index += 1;
     return value;
   };
+}
+
+function assertAlmostEqual(actual, expected, epsilon = 1e-9) {
+  assert.ok(Math.abs(actual - expected) <= epsilon, `${actual} did not equal ${expected}`);
 }

@@ -622,6 +622,34 @@ test("restart cleanup resets encounter wallet finale state", () => {
   assert.deepEqual(encounter.projectiles, []);
 });
 
+test("restart cleanup clears first rowboat water obstacles by source", () => {
+  const encounter = new AngryFishermanEncounter(() => 0);
+  const gameState = createGameState();
+  const bottle = THROWABLES.find((item) => item.id === "bottle");
+  const projectile = createProjectile(bottle, CONFIG.FISHERMAN_STOP_X, obstacleRowCenter(2), {
+    row: 2,
+    patternId: "test-rowboat"
+  });
+
+  updateProjectile(projectile, projectile.duration, gameState);
+  gameState.obstacles.addObstacle({
+    source: "other",
+    assetKey: "bottleWater",
+    x: 500,
+    y: obstacleRowCenter(3),
+    row: 3,
+    width: 60,
+    height: 30,
+    speed: 100
+  });
+
+  assert.deepEqual(gameState.obstacles.encounterObstacles.map((obstacle) => obstacle.source), ["angry-fisherman", "other"]);
+
+  encounter.cleanup(gameState);
+
+  assert.deepEqual(gameState.obstacles.encounterObstacles.map((obstacle) => obstacle.source), ["other"]);
+});
+
 test("airborne and waterborne wallet collisions still overlap surfer crash hazards", () => {
   const item = throwableById("wallet");
   const projectile = createProjectile(item, 810, 300);

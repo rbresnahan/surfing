@@ -1,4 +1,4 @@
-export const VERSION = "v0.3.0";
+export const VERSION = "v0.3.1";
 
 export const CONFIG = {
   DEBUG: false,
@@ -72,7 +72,7 @@ export const CONFIG = {
   FISHERMAN_WALLET_LOSS_EXIT_SPEED: 80,
   COOLER_ENCOUNTER_TIME_MS: 105000,
   COOLER_BOAT_ENTRY_SPEED: 170,
-  COOLER_BOAT_VERTICAL_SPEED: 190,
+  COOLER_BOAT_VERTICAL_SPEED: 171,
   COOLER_ATTACK_POSITIONS: {
     top: 210,
     bottom: 475
@@ -90,5 +90,23 @@ export const CONFIG = {
   WIPEOUT_SECONDS: 1,
   SCORE_TIME_MULTIPLIER: 100,
   SCORE_DODGE_VALUE: 500,
-  STORAGE_KEY: "surf-game-v0.3.0-records"
+  STORAGE_KEY: "surf-game-v0.3.1-records"
 };
+
+CONFIG.ENCOUNTER_SEQUENCE = [
+  {
+    id: "angry-fisherman",
+    startTimeMs: CONFIG.FIRST_ENCOUNTER_TIME_MS,
+    difficultyStageOnComplete: 1
+  },
+  {
+    id: "angry-fisherman-cooler",
+    startTimeMs: CONFIG.COOLER_ENCOUNTER_TIME_MS,
+    difficultyStageOnComplete: 2,
+    postEncounterGraceSeconds: CONFIG.COOLER_POST_ENCOUNTER_GRACE_SECONDS
+  }
+];
+
+export function encounterConfig(id) {
+  return CONFIG.ENCOUNTER_SEQUENCE.find((encounter) => encounter.id === id) ?? null;
+}

@@ -86,17 +86,16 @@ export class EncounterManager {
   completeActiveEncounter(gameState) {
     const encounter = this.activeEncounter;
     this.completedEncounterIds.add(encounter.id);
-    this.advanceDifficultyForEncounter(encounter.id);
+    this.advanceDifficultyForEncounter(encounter);
     this.postEncounterGraceTimer = encounter.postEncounterGraceSeconds ?? 0;
     encounter.cleanup(gameState);
     this.activeEncounter = null;
   }
 
-  advanceDifficultyForEncounter(id) {
-    if (id === "angry-fisherman" && this.difficultyStage < 1) {
-      this.difficultyStage = 1;
-    } else if (id === "angry-fisherman-cooler" && this.difficultyStage < 2) {
-      this.difficultyStage = 2;
+  advanceDifficultyForEncounter(encounter) {
+    const nextStage = encounter.difficultyStageOnComplete;
+    if (Number.isInteger(nextStage) && this.difficultyStage < nextStage) {
+      this.difficultyStage = nextStage;
     }
   }
 

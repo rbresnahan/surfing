@@ -1,4 +1,4 @@
-import { CONFIG } from "./config.js";
+import { CONFIG, encounterConfig } from "./config.js";
 import { centeredRect } from "./collision.js";
 import {
   THROWABLES,
@@ -36,16 +36,19 @@ const COOLER_RELEASE_POINT_OFFSET_Y = 0;
 export class CoolerFishermanEncounter {
   constructor(random = () => 0) {
     this.id = "angry-fisherman-cooler";
+    const config = encounterConfig(this.id);
     this.type = "scripted";
     this.exclusive = true;
     this.pauseNormalSpawns = true;
-    this.postEncounterGraceSeconds = CONFIG.COOLER_POST_ENCOUNTER_GRACE_SECONDS;
+    this.startTimeMs = config?.startTimeMs ?? CONFIG.COOLER_ENCOUNTER_TIME_MS;
+    this.difficultyStageOnComplete = config?.difficultyStageOnComplete ?? null;
+    this.postEncounterGraceSeconds = config?.postEncounterGraceSeconds ?? CONFIG.COOLER_POST_ENCOUNTER_GRACE_SECONDS;
     this.random = random;
     this.resetInternal();
   }
 
   canStart(gameState) {
-    return this.phase === COOLER_PHASES.WAITING && gameState.elapsedMs >= CONFIG.COOLER_ENCOUNTER_TIME_MS;
+    return this.phase === COOLER_PHASES.WAITING && gameState.elapsedMs >= this.startTimeMs;
   }
 
   start() {
@@ -158,10 +161,8 @@ export class CoolerFishermanEncounter {
   }
 
   cleanup(gameState = null) {
-    if (this.phase !== COOLER_PHASES.COMPLETE) {
-      const cleanupState = gameState ?? this.lastGameState;
-      cleanupState?.obstacles?.clearEncounterObstaclesBySource?.(this.id);
-    }
+    const cleanupState = gameState ?? this.lastGameState;
+    cleanupState?.obstacles?.clearEncounterObstaclesBySource?.(this.id);
     this.resetInternal();
   }
 
