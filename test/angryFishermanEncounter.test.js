@@ -101,11 +101,11 @@ test("cooler-return fisherman artwork is registered without changing original fi
   await access(new URL("../assets/angry-fisherman-cooler-dump.png", import.meta.url));
 });
 
-test("ordinary throwable items can be randomized while wallet remains final", () => {
+test("ordinary throwable items use deterministic order while wallet remains final", () => {
   const first = createThrowOrder(fixedRandom([0, 0, 0, 0, 0]));
   const second = createThrowOrder(fixedRandom([0.99, 0.99, 0.99, 0.99, 0.99]));
 
-  assert.notDeepEqual(first.slice(0, -1), second.slice(0, -1));
+  assert.deepEqual(first, second);
   assert.equal(first.at(-1), WALLET_THROWABLE_ID);
   assert.equal(second.at(-1), WALLET_THROWABLE_ID);
   assert.deepEqual([...first.slice(0, -1)].sort(), [...ORDINARY_THROW_SEQUENCE].sort());
@@ -620,6 +620,34 @@ test("restart cleanup resets encounter wallet finale state", () => {
   assert.equal(encounter.timer, 0);
   assert.equal(encounter.state, FISHERMAN_STATES.INACTIVE);
   assert.deepEqual(encounter.projectiles, []);
+});
+
+test("restart cleanup clears first rowboat water obstacles by source", () => {
+  const encounter = new AngryFishermanEncounter(() => 0);
+  const gameState = createGameState();
+  const bottle = THROWABLES.find((item) => item.id === "bottle");
+  const projectile = createProjectile(bottle, CONFIG.FISHERMAN_STOP_X, obstacleRowCenter(2), {
+    row: 2,
+    patternId: "test-rowboat"
+  });
+
+  updateProjectile(projectile, projectile.duration, gameState);
+  gameState.obstacles.addObstacle({
+    source: "other",
+    assetKey: "bottleWater",
+    x: 500,
+    y: obstacleRowCenter(3),
+    row: 3,
+    width: 60,
+    height: 30,
+    speed: 100
+  });
+
+  assert.deepEqual(gameState.obstacles.encounterObstacles.map((obstacle) => obstacle.source), ["angry-fisherman", "other"]);
+
+  encounter.cleanup(gameState);
+
+  assert.deepEqual(gameState.obstacles.encounterObstacles.map((obstacle) => obstacle.source), ["other"]);
 });
 
 test("airborne and waterborne wallet collisions still overlap surfer crash hazards", () => {

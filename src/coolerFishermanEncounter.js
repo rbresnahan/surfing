@@ -1,4 +1,4 @@
-import { CONFIG } from "./config.js";
+import { CONFIG, encounterConfig } from "./config.js";
 import { centeredRect } from "./collision.js";
 import {
   THROWABLES,
@@ -34,18 +34,21 @@ const COOLER_OPENING_OFFSET_X = -80;
 const COOLER_RELEASE_POINT_OFFSET_Y = 0;
 
 export class CoolerFishermanEncounter {
-  constructor(random = Math.random) {
+  constructor(random = () => 0) {
     this.id = "angry-fisherman-cooler";
+    const config = encounterConfig(this.id);
     this.type = "scripted";
     this.exclusive = true;
     this.pauseNormalSpawns = true;
-    this.postEncounterGraceSeconds = CONFIG.COOLER_POST_ENCOUNTER_GRACE_SECONDS;
+    this.startTimeMs = config?.startTimeMs ?? CONFIG.COOLER_ENCOUNTER_TIME_MS;
+    this.difficultyStageOnComplete = config?.difficultyStageOnComplete ?? null;
+    this.postEncounterGraceSeconds = config?.postEncounterGraceSeconds ?? CONFIG.COOLER_POST_ENCOUNTER_GRACE_SECONDS;
     this.random = random;
     this.resetInternal();
   }
 
   canStart(gameState) {
-    return this.phase === COOLER_PHASES.WAITING && gameState.elapsedMs >= CONFIG.COOLER_ENCOUNTER_TIME_MS;
+    return this.phase === COOLER_PHASES.WAITING && gameState.elapsedMs >= this.startTimeMs;
   }
 
   start() {
@@ -54,7 +57,7 @@ export class CoolerFishermanEncounter {
     this.started = true;
     this.x = CONFIG.WIDTH + this.boatWidth / 2 + 20;
     this.y = obstacleRowCenter(2) - 26;
-    this.firstSide = this.random() < 0.5 ? "top" : "bottom";
+    this.firstSide = "top";
     this.waveSides = Array.from({ length: WAVE_COUNT }, (_, index) =>
       index % 2 === 0 ? this.firstSide : oppositeSide(this.firstSide)
     );
@@ -158,10 +161,8 @@ export class CoolerFishermanEncounter {
   }
 
   cleanup(gameState = null) {
-    if (this.phase !== COOLER_PHASES.COMPLETE) {
-      const cleanupState = gameState ?? this.lastGameState;
-      cleanupState?.obstacles?.clearEncounterObstaclesBySource?.(this.id);
-    }
+    const cleanupState = gameState ?? this.lastGameState;
+    cleanupState?.obstacles?.clearEncounterObstaclesBySource?.(this.id);
     this.resetInternal();
   }
 
@@ -310,9 +311,9 @@ export class CoolerFishermanEncounter {
   }
 }
 
-export function createCoolerWavePlan({ side, waveIndex = 0, previousPattern = null, random = Math.random }) {
-  const pattern = createCoolerPattern(choosePattern(previousPattern, waveIndex, random), side, random);
-  const items = createPatternItems(pattern, random);
+export function createCoolerWavePlan({ side, waveIndex = 0, previousPattern = null, random = () => 0 }) {
+  const pattern = createCoolerPattern(choosePattern(previousPattern, waveIndex), side);
+  const items = createPatternItems(pattern);
   const plan = {
     waveNumber: waveIndex + 1,
     side,
@@ -409,29 +410,29 @@ function dropHitbox(drop) {
 }
 
 function createFallbackGapLinePlan({ side, waveIndex, gap, random }) {
-  const pattern = createCoolerPattern(COOLER_WAVE_PATTERNS.GAP_LINE, side, random);
+  const pattern = createCoolerPattern(COOLER_WAVE_PATTERNS.GAP_LINE, side);
   return {
     waveNumber: waveIndex + 1,
     side,
     pattern: pattern.id,
     gap: gap ?? openingForPattern(pattern),
-    items: createPatternItems(pattern, random)
+    items: createPatternItems(pattern)
   };
 }
 
-function choosePattern(previousPattern, waveIndex, random) {
+function choosePattern(previousPattern, waveIndex) {
   if (waveIndex === 2) return COOLER_WAVE_PATTERNS.FINALE;
-  const selected = random() < 0.5 ? COOLER_WAVE_PATTERNS.GAP_LINE : COOLER_WAVE_PATTERNS.SCATTER;
+  const selected = waveIndex % 2 === 0 ? COOLER_WAVE_PATTERNS.GAP_LINE : COOLER_WAVE_PATTERNS.SCATTER;
   return selected === previousPattern ? oppositePattern(selected) : selected;
 }
 
-function createCoolerPattern(patternId, side, random) {
+function createCoolerPattern(patternId, side) {
   const base = patternId === COOLER_WAVE_PATTERNS.GAP_LINE
     ? PATTERN_BY_ID["center-gate"]
     : patternId === COOLER_WAVE_PATTERNS.SCATTER
       ? PATTERN_BY_ID["sweeping-staircase"]
       : PATTERN_BY_ID["split-clusters"];
-  const pattern = instantiatePattern(base, { random, mirror: side === "bottom" });
+  const pattern = instantiatePattern(base);
   return {
     ...pattern,
     id: patternId,
@@ -443,7 +444,7 @@ function createCoolerPattern(patternId, side, random) {
   };
 }
 
-function createPatternItems(pattern, random) {
+function createPatternItems(pattern) {
   const direction = releaseDirectionForSide(pattern.side);
   const plannedRows = new Set();
   return pattern.obstacles
@@ -453,7 +454,7 @@ function createPatternItems(pattern, random) {
       return true;
     })
     .map((obstacle) => ({
-      item: randomCoolerThrowable(random),
+      item: coolerThrowableForRow(obstacle.row),
       row: obstacle.row,
       y: obstacleRowCenter(obstacle.row),
       releaseOffset: releaseOffsetForRow(obstacle.row, pattern.side)
@@ -476,8 +477,8 @@ function openingForPattern(pattern) {
   };
 }
 
-function randomCoolerThrowable(random) {
-  return COOLER_THROWABLES[Math.floor(random() * COOLER_THROWABLES.length)];
+function coolerThrowableForRow(row) {
+  return COOLER_THROWABLES[row % COOLER_THROWABLES.length];
 }
 
 function oppositeSide(side) {

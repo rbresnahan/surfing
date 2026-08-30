@@ -22,6 +22,8 @@ export function loadRecords(storage = globalThis.localStorage) {
 }
 
 export function saveRecords(run, storage = globalThis.localStorage) {
+  if (run.nonScoring) return loadRecords(storage);
+
   const current = loadRecords(storage);
   const next = {
     bestTime: Math.max(current.bestTime, run.survivalTime),
