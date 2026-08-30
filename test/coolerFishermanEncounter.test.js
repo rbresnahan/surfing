@@ -46,7 +46,7 @@ test("cooler boat enters from the right and stops only after fully visible", () 
   assert.equal(encounter.phase, COOLER_PHASES.POSITIONING);
 });
 
-test("first cooler attack side can be top or bottom and all waves alternate", () => {
+test("first cooler attack side is deterministic and all waves alternate", () => {
   const topFirst = new CoolerFishermanEncounter(() => 0);
   const bottomFirst = new CoolerFishermanEncounter(() => 0.99);
 
@@ -55,8 +55,8 @@ test("first cooler attack side can be top or bottom and all waves alternate", ()
 
   assert.equal(topFirst.firstSide, "top");
   assert.deepEqual(topFirst.waveSides, ["top", "bottom", "top"]);
-  assert.equal(bottomFirst.firstSide, "bottom");
-  assert.deepEqual(bottomFirst.waveSides, ["bottom", "top", "bottom"]);
+  assert.equal(bottomFirst.firstSide, "top");
+  assert.deepEqual(bottomFirst.waveSides, ["top", "bottom", "top"]);
 });
 
 test("cooler encounter runs exactly three dump waves and exits right after wave 3", () => {

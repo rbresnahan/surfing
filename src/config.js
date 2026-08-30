@@ -1,7 +1,9 @@
-export const VERSION = "v0.2.2";
+export const VERSION = "v0.3.0";
 
 export const CONFIG = {
   DEBUG: false,
+  DEBUG_START_STAGE: null,
+  DEBUG_REDUCED_SPEED_MULTIPLIER: 1,
   WIDTH: 1024,
   HEIGHT: 576,
   SURFER_DISPLAY_HEIGHT: 140,
@@ -88,5 +90,5 @@ export const CONFIG = {
   WIPEOUT_SECONDS: 1,
   SCORE_TIME_MULTIPLIER: 100,
   SCORE_DODGE_VALUE: 500,
-  STORAGE_KEY: "surf-game-v0.2.2-records"
+  STORAGE_KEY: "surf-game-v0.3.0-records"
 };

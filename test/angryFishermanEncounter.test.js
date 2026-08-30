@@ -101,11 +101,11 @@ test("cooler-return fisherman artwork is registered without changing original fi
   await access(new URL("../assets/angry-fisherman-cooler-dump.png", import.meta.url));
 });
 
-test("ordinary throwable items can be randomized while wallet remains final", () => {
+test("ordinary throwable items use deterministic order while wallet remains final", () => {
   const first = createThrowOrder(fixedRandom([0, 0, 0, 0, 0]));
   const second = createThrowOrder(fixedRandom([0.99, 0.99, 0.99, 0.99, 0.99]));
 
-  assert.notDeepEqual(first.slice(0, -1), second.slice(0, -1));
+  assert.deepEqual(first, second);
   assert.equal(first.at(-1), WALLET_THROWABLE_ID);
   assert.equal(second.at(-1), WALLET_THROWABLE_ID);
   assert.deepEqual([...first.slice(0, -1)].sort(), [...ORDINARY_THROW_SEQUENCE].sort());

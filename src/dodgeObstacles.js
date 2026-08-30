@@ -78,7 +78,7 @@ export function getDodgeObstacleType(id) {
   return DODGE_OBSTACLE_TYPE_BY_ID[id] ?? null;
 }
 
-export function selectDodgeObstacleType(random = Math.random, types = DODGE_OBSTACLE_TYPES) {
+export function selectDodgeObstacleType(random = () => 0, types = DODGE_OBSTACLE_TYPES) {
   const totalWeight = types.reduce((sum, type) => sum + Math.max(0, type.spawnWeight), 0);
   if (totalWeight <= 0) {
     throw new Error("At least one dodge obstacle type must have a positive spawn weight");

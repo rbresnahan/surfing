@@ -22,6 +22,8 @@ export class EncounterManager {
     this.completedEncounterIds = new Set();
     this.startedMajorEncounter = false;
     this.postEncounterGraceTimer = 0;
+    this.difficultyStage = CONFIG.DEBUG_START_STAGE ?? 0;
+    this.nonScoringDebugRun = CONFIG.DEBUG_START_STAGE !== null || CONFIG.DEBUG_REDUCED_SPEED_MULTIPLIER !== 1;
   }
 
   update(dt, gameState) {
@@ -82,10 +84,20 @@ export class EncounterManager {
   }
 
   completeActiveEncounter(gameState) {
-    this.completedEncounterIds.add(this.activeEncounter.id);
-    this.postEncounterGraceTimer = this.activeEncounter.postEncounterGraceSeconds ?? 0;
-    this.activeEncounter.cleanup(gameState);
+    const encounter = this.activeEncounter;
+    this.completedEncounterIds.add(encounter.id);
+    this.advanceDifficultyForEncounter(encounter.id);
+    this.postEncounterGraceTimer = encounter.postEncounterGraceSeconds ?? 0;
+    encounter.cleanup(gameState);
     this.activeEncounter = null;
+  }
+
+  advanceDifficultyForEncounter(id) {
+    if (id === "angry-fisherman" && this.difficultyStage < 1) {
+      this.difficultyStage = 1;
+    } else if (id === "angry-fisherman-cooler" && this.difficultyStage < 2) {
+      this.difficultyStage = 2;
+    }
   }
 
   hasExclusiveEncounter() {

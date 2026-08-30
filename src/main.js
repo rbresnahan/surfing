@@ -70,12 +70,14 @@ function update(dt) {
   updateWave(dt);
 
   if (state === GameState.RUNNING) {
-    survivalTime += dt;
-    surfer.update(dt, input);
+    const runDt = dt * CONFIG.DEBUG_REDUCED_SPEED_MULTIPLIER;
+    survivalTime += runDt;
+    surfer.update(runDt, input);
     const gameState = buildEncounterGameState();
-    encounters.update(dt, gameState);
-    headsDodged += obstacles.update(dt, survivalTime, surfer.y, {
-      pauseSpawns: encounters.shouldPauseNormalSpawns()
+    encounters.update(runDt, gameState);
+    headsDodged += obstacles.update(runDt, survivalTime, surfer.y, {
+      pauseSpawns: encounters.shouldPauseNormalSpawns(),
+      difficultyStage: encounters.difficultyStage
     });
     checkCollision();
   } else if (state === GameState.CRASHED) {
@@ -98,7 +100,7 @@ function startRun() {
 function crash() {
   state = GameState.CRASHED;
   finalScore = calculateScore(survivalTime, headsDodged);
-  records = saveRecords({ survivalTime, headsDodged, score: finalScore });
+  records = saveRecords({ survivalTime, headsDodged, score: finalScore, nonScoring: encounters.nonScoringDebugRun });
   obstacles.markCollided();
   encounters.cleanupActive(buildEncounterGameState());
 }
@@ -150,7 +152,8 @@ function buildEncounterGameState() {
     surfer,
     obstacles,
     assets,
-    music: backgroundMusic
+    music: backgroundMusic,
+    difficultyStage: encounters.difficultyStage
   };
 }
 
@@ -265,8 +268,9 @@ function drawDebugRows() {
     ctx.fillText(`${row}`, CONFIG.SURF_BOUNDS.left - 22, centerY);
   }
   const activeId = obstacles.activeEvent?.patternId ?? "none";
+  const nextId = obstacles.scheduler?.peekPattern(encounters.difficultyStage)?.id ?? "none";
   ctx.fillStyle = "#ffffff";
-  ctx.fillText(`active ${activeId}`, CONFIG.SURF_BOUNDS.left, CONFIG.SURF_BOUNDS.top - 18);
+  ctx.fillText(`stage ${encounters.difficultyStage} active ${activeId} next ${nextId}`, CONFIG.SURF_BOUNDS.left, CONFIG.SURF_BOUNDS.top - 18);
   ctx.restore();
 }
 
@@ -320,6 +324,5 @@ function drawLoadingError(error) {
 }
 
 function randomWaveFrameSeconds() {
-  const ms = CONFIG.WAVE_FRAME_MS_MIN + Math.random() * (CONFIG.WAVE_FRAME_MS_MAX - CONFIG.WAVE_FRAME_MS_MIN);
-  return ms / 1000;
+  return ((CONFIG.WAVE_FRAME_MS_MIN + CONFIG.WAVE_FRAME_MS_MAX) / 2) / 1000;
 }

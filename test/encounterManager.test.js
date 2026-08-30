@@ -28,6 +28,41 @@ test("manager updates and cleans up a completed encounter", () => {
   assert.equal(manager.activeEncounter, null);
 });
 
+test("difficulty advances only after successful encounter completion", () => {
+  const manager = new EncounterManager();
+  const fisherman = fakeEncounter({ id: "angry-fisherman", canStart: () => true, completeAfterUpdate: true });
+  const cooler = fakeEncounter({
+    id: "angry-fisherman-cooler",
+    type: "scripted",
+    canStart: () => true,
+    completeAfterUpdate: true
+  });
+  manager.register(fisherman);
+  manager.register(cooler);
+
+  assert.equal(manager.difficultyStage, 0);
+  manager.update(0.016, gameStateAt(CONFIG.FIRST_ENCOUNTER_TIME_MS));
+  assert.equal(manager.difficultyStage, 0);
+  manager.update(0.016, gameStateAt(CONFIG.FIRST_ENCOUNTER_TIME_MS + 16));
+  assert.equal(manager.difficultyStage, 1);
+
+  manager.update(0.016, gameStateAt(CONFIG.COOLER_ENCOUNTER_TIME_MS));
+  manager.update(0.016, gameStateAt(CONFIG.COOLER_ENCOUNTER_TIME_MS + 16));
+  assert.equal(manager.difficultyStage, 2);
+});
+
+test("restart resets run-scoped difficulty and encounter state", () => {
+  const manager = new EncounterManager();
+  manager.difficultyStage = 2;
+  manager.completedEncounterIds.add("angry-fisherman");
+
+  manager.reset();
+
+  assert.equal(manager.difficultyStage, 0);
+  assert.equal(manager.completedEncounterIds.size, 0);
+  assert.equal(manager.activeEncounter, null);
+});
+
 test("only one major encounter can start per run", () => {
   const manager = new EncounterManager();
   const first = fakeEncounter({ id: "first", canStart: () => true, completeAfterUpdate: true });

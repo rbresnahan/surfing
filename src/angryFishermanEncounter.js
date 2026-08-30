@@ -108,7 +108,7 @@ const WalletState = {
 };
 
 export class AngryFishermanEncounter {
-  constructor(random = Math.random) {
+  constructor(random = () => 0) {
     this.id = "angry-fisherman";
     this.type = "major";
     this.exclusive = true;
@@ -308,8 +308,8 @@ export class AngryFishermanEncounter {
   }
 }
 
-export function createThrowOrder(random = Math.random) {
-  return [...shuffle(ORDINARY_THROW_SEQUENCE, random), WALLET_THROWABLE_ID];
+export function createThrowOrder(random = () => 0) {
+  return [...ORDINARY_THROW_SEQUENCE, WALLET_THROWABLE_ID];
 }
 
 export function createProjectile(item, boatX, boatY, options = {}) {
@@ -428,7 +428,7 @@ export function projectileDurationSeconds(item) {
 function chooseLane(lanes, previousLane) {
   const options = lanes.filter((lane) => lane !== previousLane);
   const pool = options.length ? options : lanes;
-  return pool[Math.floor(Math.random() * pool.length)];
+  return pool[0];
 }
 
 function boatYForTargetRow(row) {
@@ -475,19 +475,7 @@ function createThrowable({
 }
 
 function randomThrowIntervalSeconds() {
-  return (
-    CONFIG.FISHERMAN_THROW_INTERVAL_MIN_MS +
-    Math.random() * (CONFIG.FISHERMAN_THROW_INTERVAL_MAX_MS - CONFIG.FISHERMAN_THROW_INTERVAL_MIN_MS)
-  ) / 1000;
-}
-
-function shuffle(items, random) {
-  const result = [...items];
-  for (let i = result.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(random() * (i + 1));
-    [result[i], result[j]] = [result[j], result[i]];
-  }
-  return result;
+  return ((CONFIG.FISHERMAN_THROW_INTERVAL_MIN_MS + CONFIG.FISHERMAN_THROW_INTERVAL_MAX_MS) / 2) / 1000;
 }
 
 function midpoint(a, b) {

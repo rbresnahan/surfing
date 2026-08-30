@@ -1,9 +1,10 @@
 import { CONFIG } from "./config.js";
 import { centeredRect, rectsOverlap } from "./collision.js";
-import { DODGE_OBSTACLE_TYPES, selectDodgeObstacleType } from "./dodgeObstacles.js";
+import { DODGE_OBSTACLE_TYPES, getDodgeObstacleType, selectDodgeObstacleType } from "./dodgeObstacles.js";
 import { obstacleRowCenter, isValidObstacleRow, nearestObstacleRow } from "./rowGeometry.js";
-import { instantiatePattern, selectPatternForTime } from "./obstaclePatterns.js";
+import { instantiatePattern, PATTERN_BY_ID } from "./obstaclePatterns.js";
 import { validateObstacleTimeline } from "./patternValidator.js";
+import { PATTERN_SCHEDULE, stageTuning } from "./obstacleTuning.js";
 
 export function obstacleSpeedForTime(seconds) {
   const t = Math.max(0, Math.min(1, seconds / CONFIG.DIFFICULTY_RAMP_SECONDS));
@@ -19,7 +20,7 @@ export function eventWeightsForTime(seconds) {
   };
 }
 
-export function spawnDelayForTime(seconds, random = Math.random) {
+export function spawnDelayForTime(seconds, random = () => 0.5) {
   const t = Math.max(0, Math.min(1, seconds / CONFIG.DIFFICULTY_RAMP_SECONDS));
   const min = lerp(CONFIG.SPAWN_DELAY_START.min, CONFIG.SPAWN_DELAY_END.min, t);
   const max = lerp(CONFIG.SPAWN_DELAY_START.max, CONFIG.SPAWN_DELAY_END.max, t);
@@ -45,27 +46,24 @@ export function createObstacleEvent({
   surferY,
   elapsed,
   activeHeads = [],
-  random = Math.random,
-  validator = isEventFair
+  random = () => 0,
+  validator = isEventFair,
+  pattern = null,
+  difficultyStage = 0
 }) {
-  const baseSpeed = obstacleSpeedForTime(elapsed);
-  const weights = eventWeightsForTime(elapsed);
+  const baseSpeed = stageTuning(difficultyStage).speed;
   const spawnX = CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING;
-  let previousPatternId = null;
 
   for (let attempt = 0; attempt < CONFIG.HEAD_SPAWN_PLACEMENT_RETRIES; attempt += 1) {
-    const includeIds = random() < weights.single
-      ? ["single-low", "single-high", "single-center"]
-      : null;
-    const template = selectPatternForTime(elapsed, { random, previousPatternId, includeIds });
-    const pattern = instantiatePattern(template, { random });
-    const speed = baseSpeed * pattern.speedMultiplier;
-    const candidate = createPatternEvent(pattern, spawnX, speed, random);
+    const template = pattern ?? PATTERN_BY_ID[stageTuning(difficultyStage).schedule[attempt % stageTuning(difficultyStage).schedule.length]];
+    const instance = instantiatePattern(template);
+    const speed = baseSpeed * instance.speedMultiplier;
+    const candidate = createPatternEvent(instance, spawnX, speed);
 
     if (validator(candidate, surferY, speed, activeHeads) && isEventPlacementClear(candidate, activeHeads)) {
       return { ...candidate, attemptCount: attempt + 1 };
     }
-    previousPatternId = pattern.id;
+    if (pattern) break;
   }
 
   return null;
@@ -116,55 +114,63 @@ export class ObstacleManager {
   }
 
   reset() {
-    this.activeEvent = null;
+    this.activeEvents = [];
     this.encounterObstacles = [];
     this.spawnTimer = 0.55;
+    this.scheduler = new DeterministicObstacleScheduler();
+  }
+
+  get activeEvent() {
+    return this.activeEvents[0] ?? null;
+  }
+
+  set activeEvent(event) {
+    this.activeEvents = event ? [event] : [];
   }
 
   update(dt, elapsed, surferY, options = {}) {
     const pauseSpawns = options.pauseSpawns === true;
+    const difficultyStage = options.difficultyStage ?? 0;
     const encounterDodged = this.updateEncounterObstacles(dt);
+    const hadNormalEventsAtStart = this.activeEvents.length > 0;
 
-    if (this.activeEvent) {
-      updateObstacles(this.activeEvent.heads, dt, this.activeEvent.speed);
-
-      const newlyDodged = this.activeEvent.heads.filter((head) => head.resolved && !head.counted).length;
-      this.activeEvent.heads.forEach((head) => {
+    let normalDodged = 0;
+    let completedNormalEvent = false;
+    for (const event of this.activeEvents) {
+      updateObstacles(event.heads, dt, event.speed);
+      const newlyDodged = event.heads.filter((head) => head.resolved && !head.counted).length;
+      event.heads.forEach((head) => {
         if (head.resolved) head.counted = true;
       });
+      normalDodged += event.collided ? 0 : newlyDodged;
+      updateEventThreat(event);
+    }
 
-      const unresolvedHeads = this.activeEvent.heads.filter((head) => !head.resolved);
-      const eventRight = unresolvedHeads.length
-        ? Math.max(...unresolvedHeads.map((head) => head.x + head.width / 2))
-        : -Infinity;
-      this.activeEvent.threatening = unresolvedHeads.length > 0 && eventRight > CONFIG.SURF_BOUNDS.left - CONFIG.EVENT_CLEAR_X;
-
-      if (unresolvedHeads.length === 0) {
-        const dodged = this.activeEvent.collided ? 0 : newlyDodged;
-        this.activeEvent = null;
-        this.spawnTimer = spawnDelayForTime(elapsed);
-        return dodged + encounterDodged;
-      }
-
-      return (this.activeEvent.collided ? 0 : newlyDodged) + encounterDodged;
+    completedNormalEvent = hadNormalEventsAtStart && this.activeEvents.some((event) => event.heads.every((head) => head.resolved));
+    this.activeEvents = this.activeEvents.filter((event) => event.heads.some((head) => !head.resolved));
+    if (completedNormalEvent) {
+      this.spawnTimer = stageTuning(difficultyStage).spawnDelaySeconds;
     }
 
     if (!pauseSpawns) {
       this.spawnTimer -= dt;
     }
-    if (!pauseSpawns && this.spawnTimer <= 0 && canSpawnNextEvent(this.activeEvent)) {
-      this.activeEvent = createObstacleEvent({
+
+    if (!pauseSpawns && !hadNormalEventsAtStart && this.spawnTimer <= 0) {
+      const event = this.scheduler.nextEvent({
+        difficultyStage,
         surferY,
-        elapsed,
-        activeHeads: options.activeHeads ?? this.activeHeads(),
-        random: options.random ?? Math.random
+        activeHeads: options.activeHeads ?? this.activeHeads()
       });
-      if (!this.activeEvent) {
-        this.spawnTimer = spawnDelayForTime(elapsed);
+      if (event) {
+        this.activeEvents.push(event);
+        this.spawnTimer = stageTuning(difficultyStage).spawnDelaySeconds;
+      } else {
+        this.spawnTimer = 0.08;
       }
     }
 
-    return encounterDodged;
+    return normalDodged + encounterDodged;
   }
 
   updateEncounterObstacles(dt) {
@@ -201,15 +207,15 @@ export class ObstacleManager {
       hitboxScaleY: obstacle.hitboxScaleY ?? obstacle.collisionScale ?? CONFIG.HEAD_HITBOX_SCALE_Y,
       bobAmount: obstacle.bobAmount ?? 0,
       bobSpeed: obstacle.bobSpeed ?? 5,
-      bobOffset: obstacle.bobOffset ?? Math.random() * Math.PI * 2,
+      bobOffset: obstacle.bobOffset ?? deterministicBobOffset(obstacle),
       resolved: false,
       counted: false
     });
   }
 
   draw(ctx, assets) {
-    if (this.activeEvent) {
-      for (const head of this.activeEvent.heads) {
+    for (const event of this.activeEvents) {
+      for (const head of event.heads) {
         drawObstacle(ctx, obstacleImage(assets, head), head);
       }
     }
@@ -220,8 +226,8 @@ export class ObstacleManager {
   }
 
   hitboxes() {
-    const headHitboxes = this.activeEvent
-      ? this.activeEvent.heads
+    const headHitboxes = this.activeEvents
+      .flatMap((event) => event.heads
         .filter((head) => !head.resolved && obstacleOpacityForX(head.x) > 0)
         .map((head) =>
           centeredRect(
@@ -230,8 +236,7 @@ export class ObstacleManager {
             head.collisionWidth * head.hitboxScaleX,
             head.collisionHeight * head.hitboxScaleY
           )
-        )
-      : [];
+        ));
 
     const encounterHitboxes = this.encounterObstacles
       .filter((obstacle) => !obstacle.resolved && obstacleOpacityForX(obstacle.x) > 0)
@@ -248,14 +253,14 @@ export class ObstacleManager {
   }
 
   centers() {
-    const headCenters = this.activeEvent
-      ? this.activeEvent.heads.filter((head) => !head.resolved).map((head) => ({
+    const headCenters = this.activeEvents
+      .flatMap((event) => event.heads.filter((head) => !head.resolved).map((head) => ({
         x: head.x,
         y: head.y,
         row: head.row,
-        patternId: head.patternId ?? this.activeEvent.patternId
-      }))
-      : [];
+        patternId: head.patternId ?? event.patternId,
+        routeProgress: obstacleRouteProgress(head)
+      })));
     const encounterCenters = this.encounterObstacles
       .filter((obstacle) => !obstacle.resolved)
       .map((obstacle) => ({
@@ -268,11 +273,13 @@ export class ObstacleManager {
   }
 
   activeHeads() {
-    return this.activeEvent ? this.activeEvent.heads.filter(isHeadVisiblyPresent) : [];
+    return this.activeEvents.flatMap((event) => event.heads.filter(isHeadVisiblyPresent));
   }
 
   markCollided() {
-    if (this.activeEvent) this.activeEvent.collided = true;
+    for (const event of this.activeEvents) {
+      event.collided = true;
+    }
   }
 
   clearEncounterObstaclesBySource(source) {
@@ -320,7 +327,7 @@ function obstacleImage(assets, obstacle) {
   return assets.dodgeObstacles?.[obstacle.assetKey] ?? assets.throwables?.[obstacle.assetKey] ?? assets[obstacle.assetKey] ?? fallback;
 }
 
-export function createPatternEvent(pattern, spawnX, speed, random = Math.random) {
+export function createPatternEvent(pattern, spawnX, speed, random = () => 0) {
   return {
     type: pattern.obstacles.length === 1 ? "single" : "pattern",
     patternId: pattern.id,
@@ -330,21 +337,19 @@ export function createPatternEvent(pattern, spawnX, speed, random = Math.random)
     validationDuration: (spawnX - CONFIG.OBSTACLE_SUBMERGE_END_X) / Math.max(1, speed) +
       Math.max(0, ...pattern.obstacles.map((obstacle) => obstacle.timeOffset)) + 0.25,
     heads: pattern.obstacles.map((obstacle) => {
-      const typePool = obstacle.typeRestrictions
-        ? DODGE_OBSTACLE_TYPES.filter((type) => obstacle.typeRestrictions.includes(type.id))
-        : DODGE_OBSTACLE_TYPES;
+      const type = getDodgeObstacleType(obstacle.typeId) ?? selectDodgeObstacleType(() => 0);
       return createDodgeObstacle(
         spawnX + obstacle.timeOffset * speed,
         obstacleRowCenter(obstacle.row),
         random,
-        selectDodgeObstacleType(random, typePool),
+        type,
         { row: obstacle.row, patternId: pattern.id, timeOffset: obstacle.timeOffset }
       );
     })
   };
 }
 
-export function createDodgeObstacle(x, y, random = Math.random, type = selectDodgeObstacleType(random), options = {}) {
+export function createDodgeObstacle(x, y, random = () => 0, type = selectDodgeObstacleType(random), options = {}) {
   const row = isValidObstacleRow(options.row) ? options.row : nearestObstacleRow(y);
   return {
     type: "dodge",
@@ -366,9 +371,91 @@ export function createDodgeObstacle(x, y, random = Math.random, type = selectDod
     renderAnchor: type.render.anchor,
     renderOffsetX: type.render.offsetX,
     renderOffsetY: type.render.offsetY,
+    routeStartX: options.routeStartX ?? x,
+    routeEndX: CONFIG.OBSTACLE_SUBMERGE_END_X,
     resolved: false,
     counted: false
   };
+}
+
+export function obstacleRouteProgress(obstacle) {
+  const start = obstacle.routeStartX ?? CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING;
+  const end = obstacle.routeEndX ?? CONFIG.OBSTACLE_SUBMERGE_END_X;
+  const distance = Math.max(1, start - end);
+  return Math.max(0, Math.min(1, (start - obstacle.x) / distance));
+}
+
+export function rowIsReleased(row, activeHeads, stageConfig = stageTuning(0)) {
+  const rowHeads = activeHeads.filter((head) => head.row === row && !head.resolved);
+  if (!rowHeads.length) return true;
+  if (stageConfig.rowRelease === "fade") {
+    return rowHeads.every((head) => head.x <= CONFIG.OBSTACLE_SUBMERGE_START_X);
+  }
+  if (rowHeads.length >= stageConfig.maxActivePerRow) return false;
+  return rowHeads.every((head) => obstacleRouteProgress(head) >= stageConfig.releaseProgress);
+}
+
+export class DeterministicObstacleScheduler {
+  constructor() {
+    this.reset();
+  }
+
+  reset() {
+    this.indices = new Map();
+  }
+
+  nextPattern(stage) {
+    const config = stageTuning(stage);
+    const index = this.indices.get(config.id) ?? 0;
+    const patternId = config.schedule[index % config.schedule.length];
+    this.indices.set(config.id, index + 1);
+    return PATTERN_BY_ID[patternId];
+  }
+
+  peekPattern(stage) {
+    const config = stageTuning(stage);
+    const index = this.indices.get(config.id) ?? 0;
+    return PATTERN_BY_ID[config.schedule[index % config.schedule.length]];
+  }
+
+  nextEvent({ difficultyStage, surferY, activeHeads }) {
+    const config = stageTuning(difficultyStage);
+    const attempts = config.schedule.length;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const pattern = this.nextPattern(difficultyStage);
+      if (!pattern || !patternRowsAvailable(pattern, activeHeads, config)) continue;
+      const event = createObstacleEvent({
+        surferY,
+        activeHeads,
+        pattern,
+        difficultyStage
+      });
+      if (event) return event;
+    }
+    return null;
+  }
+}
+
+function patternRowsAvailable(pattern, activeHeads, stageConfig) {
+  const rows = [...new Set(pattern.obstacles.map((obstacle) => obstacle.row))];
+  return rows.every((row) => rowIsReleased(row, activeHeads, stageConfig));
+}
+
+function updateEventThreat(event) {
+  const unresolvedHeads = event.heads.filter((head) => !head.resolved);
+  const eventRight = unresolvedHeads.length
+    ? Math.max(...unresolvedHeads.map((head) => head.x + head.width / 2))
+    : -Infinity;
+  event.threatening = unresolvedHeads.length > 0 && eventRight > CONFIG.SURF_BOUNDS.left - CONFIG.EVENT_CLEAR_X;
+}
+
+function deterministicBobOffset(obstacle) {
+  const text = `${obstacle.source ?? obstacle.assetKey ?? ""}:${obstacle.row ?? ""}`;
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = (hash * 31 + text.charCodeAt(i)) % 997;
+  }
+  return (hash / 997) * Math.PI * 2;
 }
 
 function expandedRenderBounds(head) {
