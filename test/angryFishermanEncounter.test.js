@@ -69,9 +69,9 @@ test("angry fisherman finale assets are available under their final names", asyn
   }
 });
 
-test("cooler-return fisherman artwork is not registered for the current encounter", async () => {
-  assert.equal("angryFishermanCooler" in FISHERMAN_FILES, false);
-  assert.equal("angryFishermanCoolerDump" in FISHERMAN_FILES, false);
+test("cooler-return fisherman artwork is registered without changing original finale artwork", async () => {
+  assert.equal(FISHERMAN_FILES.angryFishermanCooler, "angry-fisherman-cooler.png");
+  assert.equal(FISHERMAN_FILES.angryFishermanCoolerDump, "angry-fisherman-cooler-dump.png");
 
   await access(new URL("../assets/angry-fisherman-cooler.png", import.meta.url));
   await access(new URL("../assets/angry-fisherman-cooler-dump.png", import.meta.url));

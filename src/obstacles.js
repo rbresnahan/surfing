@@ -181,6 +181,7 @@ export class ObstacleManager {
   addObstacle(obstacle) {
     this.encounterObstacles.push({
       type: "encounter",
+      source: obstacle.source ?? null,
       assetKey: obstacle.assetKey,
       x: obstacle.x,
       y: obstacle.y,
@@ -258,6 +259,10 @@ export class ObstacleManager {
 
   markCollided() {
     if (this.activeEvent) this.activeEvent.collided = true;
+  }
+
+  clearEncounterObstaclesBySource(source) {
+    this.encounterObstacles = this.encounterObstacles.filter((obstacle) => obstacle.source !== source);
   }
 }
 

@@ -1,0 +1,295 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { CONFIG } from "../src/config.js";
+import { EncounterManager } from "../src/encounterManager.js";
+import { ObstacleManager } from "../src/obstacles.js";
+import {
+  COOLER_PHASES,
+  COOLER_THROWABLES,
+  COOLER_WAVE_PATTERNS,
+  CoolerFishermanEncounter,
+  createCoolerWavePlan,
+  validateCoolerWavePlan
+} from "../src/coolerFishermanEncounter.js";
+import { THROWABLES, waterRenderSize } from "../src/angryFishermanEncounter.js";
+
+test("cooler encounter begins at 105 seconds and not earlier", () => {
+  const encounter = new CoolerFishermanEncounter(() => 0);
+
+  assert.equal(CONFIG.COOLER_ENCOUNTER_TIME_MS, 105000);
+  assert.equal(encounter.canStart(gameStateAt(104999)), false);
+  assert.equal(encounter.canStart(gameStateAt(105000)), true);
+});
+
+test("cooler boat enters from the right and stops only after fully visible", () => {
+  const encounter = new CoolerFishermanEncounter(() => 0);
+  encounter.start();
+
+  assert.ok(encounter.x - encounter.boatWidth / 2 > CONFIG.WIDTH);
+
+  encounter.update(1, createGameState());
+  assert.equal(encounter.phase, COOLER_PHASES.ENTERING);
+  assert.ok(encounter.x + encounter.boatWidth / 2 > CONFIG.WIDTH);
+
+  encounter.update(10, createGameState());
+  assert.equal(encounter.x, CONFIG.FISHERMAN_STOP_X);
+  assert.ok(encounter.x + encounter.boatWidth / 2 <= CONFIG.WIDTH);
+  assert.equal(encounter.phase, COOLER_PHASES.POSITIONING);
+});
+
+test("first cooler attack side can be top or bottom and all waves alternate", () => {
+  const topFirst = new CoolerFishermanEncounter(() => 0);
+  const bottomFirst = new CoolerFishermanEncounter(() => 0.99);
+
+  topFirst.start();
+  bottomFirst.start();
+
+  assert.equal(topFirst.firstSide, "top");
+  assert.deepEqual(topFirst.waveSides, ["top", "bottom", "top"]);
+  assert.equal(bottomFirst.firstSide, "bottom");
+  assert.deepEqual(bottomFirst.waveSides, ["bottom", "top", "bottom"]);
+});
+
+test("cooler encounter runs exactly three dump waves and exits right after wave 3", () => {
+  const encounter = new CoolerFishermanEncounter(fixedRandom([0, 0, 0.5, 0.2, 0.8, 0.35, 0.6]));
+  const gameState = createGameState();
+  const phasesSeen = new Set();
+
+  encounter.start();
+  runUntil(encounter, gameState, () => encounter.isComplete(), phasesSeen);
+
+  assert.equal(encounter.completedWaves, 3);
+  assert.equal(encounter.wavePlans.length, 3);
+  assert.deepEqual(encounter.wavePlans.map((wave) => wave.waveNumber), [1, 2, 3]);
+  assert.deepEqual(encounter.wavePlans.map((wave) => wave.side), ["top", "bottom", "top"]);
+  assert.equal(phasesSeen.has(COOLER_PHASES.DUMPING_WAVE), true);
+  assert.equal(encounter.phase, COOLER_PHASES.COMPLETE);
+  assert.ok(encounter.x - encounter.boatWidth / 2 > CONFIG.WIDTH);
+});
+
+test("dump sprite is used only while releasing items and closed cooler sprite is used otherwise", () => {
+  const encounter = new CoolerFishermanEncounter(() => 0);
+  const gameState = createGameState();
+  const travelCtx = createMockContext();
+  const dumpCtx = createMockContext();
+  const exitCtx = createMockContext();
+
+  encounter.start();
+  encounter.render(travelCtx, gameState);
+
+  encounter.x = CONFIG.FISHERMAN_STOP_X;
+  encounter.y = CONFIG.COOLER_ATTACK_POSITIONS.top;
+  encounter.phase = COOLER_PHASES.PREPARING_WAVE;
+  encounter.beginDumpingWave();
+  encounter.render(dumpCtx, gameState);
+
+  encounter.phase = COOLER_PHASES.EXITING;
+  encounter.render(exitCtx, gameState);
+
+  assert.deepEqual(travelCtx.drawnImages(), ["angryFishermanCooler"]);
+  assert.deepEqual(dumpCtx.drawnImages(), ["angryFishermanCoolerDump"]);
+  assert.deepEqual(exitCtx.drawnImages(), ["angryFishermanCooler"]);
+});
+
+test("cooler waves wait for existing ordinary obstacles to clear", () => {
+  const encounter = new CoolerFishermanEncounter(() => 0);
+  const gameState = createGameState();
+  gameState.obstacles.activeEvent = { heads: [], threatening: true };
+
+  encounter.start();
+  encounter.x = CONFIG.FISHERMAN_STOP_X;
+  encounter.y = CONFIG.COOLER_ATTACK_POSITIONS.top;
+  encounter.phase = COOLER_PHASES.PREPARING_WAVE;
+  encounter.timer = -1;
+
+  encounter.update(0.1, gameState);
+  assert.equal(encounter.phase, COOLER_PHASES.PREPARING_WAVE);
+  assert.equal(encounter.activeWave, null);
+
+  gameState.obstacles.activeEvent = null;
+  encounter.update(0.1, gameState);
+  assert.equal(encounter.phase, COOLER_PHASES.DUMPING_WAVE);
+  assert.ok(encounter.activeWave);
+});
+
+test("cooler dumped items keep their configured water aspect ratios and never include the wallet", () => {
+  assert.equal(COOLER_THROWABLES.some((item) => item.id === "wallet"), false);
+
+  for (const item of COOLER_THROWABLES) {
+    const original = THROWABLES.find((throwable) => throwable.id === item.id);
+    const size = waterRenderSize(item);
+
+    assert.equal(item.waterVisualAspectRatio, original.waterVisualAspectRatio);
+    assert.equal(size.width, item.waterTargetWidth);
+    assert.equal(size.height, item.waterTargetWidth / item.waterVisualAspectRatio);
+  }
+});
+
+test("every generated cooler wave contains a validated surfer-sized safe gap", () => {
+  for (let i = 0; i < 40; i += 1) {
+    const plan = createCoolerWavePlan({
+      side: i % 2 === 0 ? "top" : "bottom",
+      waveIndex: i % 3,
+      previousPattern: i % 3 === 2 ? COOLER_WAVE_PATTERNS.GAP_LINE : null,
+      random: fixedRandom([i / 40, 0.2, 0.8, 0.35, 0.65, 0.1, 0.9])
+    });
+
+    assert.equal(validateCoolerWavePlan(plan), true);
+    assert.ok(plan.gap.bottom - plan.gap.top >= CONFIG.COOLER_PROTECTED_GAP_SIZE);
+    assert.equal(plan.items.some(({ item }) => item.id === "wallet"), false);
+  }
+});
+
+test("cooler safe-gap validation rejects an unavoidable full-height barrier", () => {
+  const item = COOLER_THROWABLES[0];
+  const plan = {
+    waveNumber: 1,
+    side: "top",
+    pattern: COOLER_WAVE_PATTERNS.GAP_LINE,
+    gap: { top: 280, bottom: 280 + CONFIG.COOLER_PROTECTED_GAP_SIZE },
+    items: [
+      { item, y: 230 },
+      { item, y: 300 },
+      { item, y: 365 },
+      { item, y: 440 }
+    ]
+  };
+
+  assert.equal(validateCoolerWavePlan(plan), false);
+});
+
+test("cooler release cadence never dumps an entire wave on one frame", () => {
+  const encounter = new CoolerFishermanEncounter(() => 0);
+  const gameState = createGameState();
+  encounter.start();
+  encounter.x = CONFIG.FISHERMAN_STOP_X;
+  encounter.y = CONFIG.COOLER_ATTACK_POSITIONS.top;
+  encounter.phase = COOLER_PHASES.PREPARING_WAVE;
+  encounter.beginDumpingWave();
+
+  encounter.update(1, gameState);
+
+  assert.equal(encounter.lastReleasedItems.length, 1);
+  assert.equal(encounter.drops.length, 1);
+  assert.equal(gameState.obstacles.encounterObstacles.length, 0);
+
+  encounter.update(CONFIG.COOLER_DROP_DURATION_SECONDS, gameState);
+  assert.equal(gameState.obstacles.encounterObstacles.length, 1);
+});
+
+test("ordinary obstacle spawning is suspended during cooler encounter and grace period", () => {
+  const manager = new EncounterManager();
+  const encounter = new CoolerFishermanEncounter(() => 0);
+  const obstacles = new ObstacleManager();
+  manager.register(encounter);
+
+  manager.update(0.016, { ...gameStateAt(CONFIG.COOLER_ENCOUNTER_TIME_MS), obstacles });
+  assert.equal(manager.shouldPauseNormalSpawns(), true);
+
+  encounter.phase = COOLER_PHASES.COMPLETE;
+  manager.update(0.016, { ...gameStateAt(CONFIG.COOLER_ENCOUNTER_TIME_MS + 16), obstacles });
+  assert.equal(manager.activeEncounter, null);
+  assert.equal(manager.shouldPauseNormalSpawns(), true);
+
+  manager.update(CONFIG.COOLER_POST_ENCOUNTER_GRACE_SECONDS, {
+    ...gameStateAt(CONFIG.COOLER_ENCOUNTER_TIME_MS + 1000),
+    obstacles
+  });
+  assert.equal(manager.shouldPauseNormalSpawns(), false);
+});
+
+test("restart and game-over cleanup clear every cooler timer and object", () => {
+  const encounter = new CoolerFishermanEncounter(() => 0);
+  const gameState = createGameState();
+  encounter.start();
+  encounter.x = CONFIG.FISHERMAN_STOP_X;
+  encounter.y = CONFIG.COOLER_ATTACK_POSITIONS.top;
+  encounter.phase = COOLER_PHASES.PREPARING_WAVE;
+  encounter.beginDumpingWave();
+  encounter.update(0.01, gameState);
+  encounter.update(CONFIG.COOLER_DROP_DURATION_SECONDS, gameState);
+
+  assert.notEqual(encounter.phase, COOLER_PHASES.WAITING);
+  assert.ok(gameState.obstacles.encounterObstacles.length > 0);
+  assert.ok(encounter.activeWave);
+
+  encounter.cleanup(gameState);
+
+  assert.equal(encounter.phase, COOLER_PHASES.WAITING);
+  assert.equal(encounter.timer, 0);
+  assert.equal(encounter.releaseTimer, 0);
+  assert.equal(encounter.waveIndex, 0);
+  assert.equal(encounter.completedWaves, 0);
+  assert.equal(encounter.activeWave, null);
+  assert.deepEqual(encounter.wavePlans, []);
+  assert.deepEqual(encounter.drops, []);
+  assert.deepEqual(encounter.lastReleasedItems, []);
+  assert.deepEqual(gameState.obstacles.encounterObstacles, []);
+});
+
+function createGameState() {
+  return {
+    elapsedMs: CONFIG.COOLER_ENCOUNTER_TIME_MS,
+    elapsedSeconds: CONFIG.COOLER_ENCOUNTER_TIME_MS / 1000,
+    assets: createAssets(),
+    obstacles: new ObstacleManager()
+  };
+}
+
+function gameStateAt(elapsedMs) {
+  return {
+    elapsedMs,
+    elapsedSeconds: elapsedMs / 1000,
+    assets: createAssets(),
+    obstacles: new ObstacleManager()
+  };
+}
+
+function runUntil(encounter, gameState, done, phasesSeen) {
+  for (let i = 0; i < 600 && !done(); i += 1) {
+    phasesSeen.add(encounter.phase);
+    encounter.update(0.05, gameState);
+  }
+}
+
+function createAssets() {
+  return {
+    angryFishermanCooler: image("angryFishermanCooler"),
+    angryFishermanCoolerDump: image("angryFishermanCoolerDump"),
+    throwables: Object.fromEntries(
+      COOLER_THROWABLES.flatMap((item) => [
+        [item.airborneAssetKey, image(item.airborneAssetKey)],
+        [item.waterAssetKey, image(item.waterAssetKey)]
+      ])
+    )
+  };
+}
+
+function createMockContext() {
+  return {
+    draws: [],
+    save() {},
+    restore() {},
+    translate() {},
+    rotate() {},
+    drawImage(...args) {
+      this.draws.push({ image: args[0], args });
+    },
+    drawnImages() {
+      return this.draws.map((draw) => draw.image.key);
+    }
+  };
+}
+
+function image(key) {
+  return { key, width: 100, height: 100 };
+}
+
+function fixedRandom(values) {
+  let index = 0;
+  return () => {
+    const value = values[index % values.length];
+    index += 1;
+    return value;
+  };
+}

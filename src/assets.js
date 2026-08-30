@@ -15,7 +15,9 @@ const SURFER_FILES = {
 export const FISHERMAN_FILES = {
   angryFisherman: "angry-fisherman.png",
   angryFishermanToss: "angry-fisherman-toss.png",
-  angryFishermanLoss: "angry-fisherman-loss.png"
+  angryFishermanLoss: "angry-fisherman-loss.png",
+  angryFishermanCooler: "angry-fisherman-cooler.png",
+  angryFishermanCoolerDump: "angry-fisherman-cooler-dump.png"
 };
 
 export const THROWABLE_FILES = {
@@ -53,6 +55,8 @@ export async function loadAssets() {
     angryFisherman,
     angryFishermanToss,
     angryFishermanLoss,
+    angryFishermanCooler,
+    angryFishermanCoolerDump,
     throwables,
     backgroundMusic,
     rowboatFinaleMusic
@@ -63,6 +67,8 @@ export async function loadAssets() {
     loadRequiredImage(`${ASSET_BASE}${FISHERMAN_FILES.angryFisherman}`),
     loadRequiredImage(`${ASSET_BASE}${FISHERMAN_FILES.angryFishermanToss}`),
     loadRequiredImage(`${ASSET_BASE}${FISHERMAN_FILES.angryFishermanLoss}`),
+    loadRequiredImage(`${ASSET_BASE}${FISHERMAN_FILES.angryFishermanCooler}`),
+    loadRequiredImage(`${ASSET_BASE}${FISHERMAN_FILES.angryFishermanCoolerDump}`),
     loadThrowables(),
     loadAudio(`${AUDIO_BASE}${AUDIO_FILES.backgroundMusic}`),
     loadAudio(`${AUDIO_BASE}${AUDIO_FILES.rowboatFinaleMusic}`)
@@ -75,6 +81,8 @@ export async function loadAssets() {
     angryFisherman,
     angryFishermanToss,
     angryFishermanLoss,
+    angryFishermanCooler,
+    angryFishermanCoolerDump,
     throwables,
     backgroundMusic,
     rowboatFinaleMusic,

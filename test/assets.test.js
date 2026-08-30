@@ -76,7 +76,33 @@ test("asset loader preloads exactly the current wave animation frames", async ()
   }
 });
 
-test("asset loader does not preload archived or future encounter assets", async () => {
+test("asset loader preloads cooler encounter artwork", async () => {
+  const originalImage = globalThis.Image;
+  const originalAudio = globalThis.Audio;
+  const loadedSources = [];
+
+  globalThis.Image = class MockImage {
+    set src(value) {
+      loadedSources.push(value);
+      queueMicrotask(() => this.onload?.());
+    }
+  };
+  globalThis.Audio = undefined;
+
+  try {
+    const assets = await loadAssets();
+
+    assert.ok(assets.angryFishermanCooler);
+    assert.ok(assets.angryFishermanCoolerDump);
+    assert.equal(loadedSources.includes("assets/angry-fisherman-cooler.png"), true);
+    assert.equal(loadedSources.includes("assets/angry-fisherman-cooler-dump.png"), true);
+  } finally {
+    globalThis.Image = originalImage;
+    globalThis.Audio = originalAudio;
+  }
+});
+
+test("asset loader does not preload archived artwork", async () => {
   const originalImage = globalThis.Image;
   const originalAudio = globalThis.Audio;
   const loadedSources = [];
@@ -96,9 +122,7 @@ test("asset loader does not preload archived or future encounter assets", async 
       "assets/archive/fisherman-base.png",
       "assets/archive/head-test.png",
       "assets/archive/surfer-original-reference.png",
-      "assets/archive/surfer-proto.png",
-      "assets/angry-fisherman-cooler.png",
-      "assets/angry-fisherman-cooler-dump.png"
+      "assets/archive/surfer-proto.png"
     ]) {
       assert.equal(loadedSources.includes(file), false);
     }

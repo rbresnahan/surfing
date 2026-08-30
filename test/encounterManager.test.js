@@ -44,6 +44,22 @@ test("only one major encounter can start per run", () => {
   assert.equal(manager.activeEncounter, null);
 });
 
+test("a later scripted encounter can start after the first major encounter completes", () => {
+  const manager = new EncounterManager();
+  const first = fakeEncounter({ id: "first", canStart: () => true, completeAfterUpdate: true });
+  const second = fakeEncounter({ id: "second", type: "scripted", canStart: (state) => state.elapsedMs >= CONFIG.COOLER_ENCOUNTER_TIME_MS });
+  manager.register(first);
+  manager.register(second);
+
+  manager.update(0.016, gameStateAt(CONFIG.FIRST_ENCOUNTER_TIME_MS));
+  manager.update(0.016, gameStateAt(CONFIG.FIRST_ENCOUNTER_TIME_MS + 16));
+  manager.update(0.016, gameStateAt(CONFIG.COOLER_ENCOUNTER_TIME_MS));
+
+  assert.equal(first.started, 1);
+  assert.equal(second.started, 1);
+  assert.equal(manager.activeEncounter, second);
+});
+
 test("normal spawns are paused only when the active encounter requests it", () => {
   const manager = new EncounterManager();
   const encounter = fakeEncounter({ canStart: () => true, pauseNormalSpawns: true });
@@ -54,12 +70,36 @@ test("normal spawns are paused only when the active encounter requests it", () =
   assert.equal(manager.shouldPauseNormalSpawns(), true);
 });
 
+test("normal spawns remain paused during a completed encounter's grace period", () => {
+  const manager = new EncounterManager();
+  const encounter = fakeEncounter({
+    canStart: () => true,
+    completeAfterUpdate: true,
+    pauseNormalSpawns: true,
+    postEncounterGraceSeconds: 0.9
+  });
+  manager.register(encounter);
+
+  manager.update(0.016, gameStateAt(CONFIG.COOLER_ENCOUNTER_TIME_MS));
+  manager.update(0.016, gameStateAt(CONFIG.COOLER_ENCOUNTER_TIME_MS + 16));
+
+  assert.equal(manager.activeEncounter, null);
+  assert.equal(manager.shouldPauseNormalSpawns(), true);
+
+  manager.update(0.4, gameStateAt(CONFIG.COOLER_ENCOUNTER_TIME_MS + 416));
+  assert.equal(manager.shouldPauseNormalSpawns(), true);
+
+  manager.update(0.5, gameStateAt(CONFIG.COOLER_ENCOUNTER_TIME_MS + 916));
+  assert.equal(manager.shouldPauseNormalSpawns(), false);
+});
+
 function fakeEncounter(options = {}) {
   return {
     id: options.id ?? "fake",
-    type: "major",
+    type: options.type ?? "major",
     exclusive: true,
     pauseNormalSpawns: options.pauseNormalSpawns ?? false,
+    postEncounterGraceSeconds: options.postEncounterGraceSeconds ?? 0,
     started: 0,
     updated: 0,
     cleaned: 0,

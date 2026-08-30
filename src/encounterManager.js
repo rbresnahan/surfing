@@ -21,10 +21,16 @@ export class EncounterManager {
     this.activeEncounter = null;
     this.completedEncounterIds = new Set();
     this.startedMajorEncounter = false;
+    this.postEncounterGraceTimer = 0;
   }
 
   update(dt, gameState) {
     if (!CONFIG.ENCOUNTERS_ENABLED) return;
+
+    if (this.postEncounterGraceTimer > 0) {
+      this.postEncounterGraceTimer = Math.max(0, this.postEncounterGraceTimer - dt);
+      return;
+    }
 
     if (this.activeEncounter) {
       this.activeEncounter.update(dt, gameState);
@@ -51,7 +57,7 @@ export class EncounterManager {
   }
 
   shouldPauseNormalSpawns() {
-    return this.activeEncounter?.pauseNormalSpawns === true;
+    return this.activeEncounter?.pauseNormalSpawns === true || this.postEncounterGraceTimer > 0;
   }
 
   hitboxes() {
@@ -77,6 +83,7 @@ export class EncounterManager {
 
   completeActiveEncounter(gameState) {
     this.completedEncounterIds.add(this.activeEncounter.id);
+    this.postEncounterGraceTimer = this.activeEncounter.postEncounterGraceSeconds ?? 0;
     this.activeEncounter.cleanup(gameState);
     this.activeEncounter = null;
   }
