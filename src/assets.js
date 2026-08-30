@@ -15,9 +15,7 @@ const SURFER_FILES = {
 export const FISHERMAN_FILES = {
   angryFisherman: "angry-fisherman.png",
   angryFishermanToss: "angry-fisherman-toss.png",
-  angryFishermanLoss: "angry-fisherman-loss.png",
-  angryFishermanCooler: "angry-fisherman-cooler.png",
-  angryFishermanCoolerDump: "angry-fisherman-cooler-dump.png"
+  angryFishermanLoss: "angry-fisherman-loss.png"
 };
 
 export const THROWABLE_FILES = {
@@ -40,36 +38,35 @@ export const AUDIO_FILES = {
   rowboatFinaleMusic: "cartridge-drift.mp3"
 };
 
+export const WAVE_FRAME_FILES = [
+  "wave-01.png",
+  "wave-02.png",
+  "wave-03.png",
+  "wave-04.png"
+];
+
 export async function loadAssets() {
   const [
     dodgeObstacles,
+    waveFrames,
     surferStates,
     angryFisherman,
     angryFishermanToss,
     angryFishermanLoss,
-    angryFishermanCooler,
-    angryFishermanCoolerDump,
     throwables,
     backgroundMusic,
     rowboatFinaleMusic
   ] = await Promise.all([
     loadDodgeObstacles(),
+    loadWaveFrames(),
     loadSurferStates(),
     loadRequiredImage(`${ASSET_BASE}${FISHERMAN_FILES.angryFisherman}`),
     loadRequiredImage(`${ASSET_BASE}${FISHERMAN_FILES.angryFishermanToss}`),
     loadRequiredImage(`${ASSET_BASE}${FISHERMAN_FILES.angryFishermanLoss}`),
-    loadRequiredImage(`${ASSET_BASE}${FISHERMAN_FILES.angryFishermanCooler}`),
-    loadRequiredImage(`${ASSET_BASE}${FISHERMAN_FILES.angryFishermanCoolerDump}`),
     loadThrowables(),
     loadAudio(`${AUDIO_BASE}${AUDIO_FILES.backgroundMusic}`),
     loadAudio(`${AUDIO_BASE}${AUDIO_FILES.rowboatFinaleMusic}`)
   ]);
-
-  const waveFrames = [];
-  for (let i = 1; i <= 4; i += 1) {
-    const image = await loadOptionalImage(`${ASSET_BASE}wave-${String(i).padStart(2, "0")}.png`);
-    if (image) waveFrames.push(image);
-  }
 
   return {
     surfer: surferStates.right,
@@ -78,8 +75,6 @@ export async function loadAssets() {
     angryFisherman,
     angryFishermanToss,
     angryFishermanLoss,
-    angryFishermanCooler,
-    angryFishermanCoolerDump,
     throwables,
     backgroundMusic,
     rowboatFinaleMusic,
@@ -98,6 +93,12 @@ async function loadDodgeObstacles() {
   );
 
   return Object.fromEntries(entries);
+}
+
+async function loadWaveFrames() {
+  return Promise.all(
+    WAVE_FRAME_FILES.map((file) => loadRequiredImage(`${ASSET_BASE}${file}`))
+  );
 }
 
 async function loadSurferStates() {
@@ -137,22 +138,4 @@ function loadAudio(src) {
   const audio = new Audio(src);
   audio.preload = "auto";
   return audio;
-}
-
-async function loadOptionalImage(src, fallback = null) {
-  if (globalThis.location?.protocol?.startsWith("http")) {
-    try {
-      const response = await fetch(src, { method: "HEAD" });
-      if (!response.ok) return fallback;
-    } catch {
-      return fallback;
-    }
-  }
-
-  return new Promise((resolve) => {
-    const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = () => resolve(fallback);
-    image.src = src;
-  });
 }

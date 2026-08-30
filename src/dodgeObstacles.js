@@ -1,7 +1,9 @@
 const DODGE_HEAD_RENDER_WIDTH = 70;
 const DODGE_NOODLE_GIRL_RENDER_WIDTH = 88;
+const DODGE_NOODLE_MAN_RENDER_WIDTH = 96;
+const DODGE_SCUBA_MAN_RENDER_WIDTH = 86;
 const DODGE_TUBE_GIRL_RENDER_HEIGHT = 78;
-const DODGE_TUBE_WOMAN_RENDER_HEIGHT = 64;
+const DODGE_TUBE_WOMAN_RENDER_WIDTH = 92;
 
 export const DODGE_OBSTACLE_TYPES = [
   createDodgeObstacleType({
@@ -9,7 +11,7 @@ export const DODGE_OBSTACLE_TYPES = [
     assetKey: "dodge-head",
     file: "dodge-head.png",
     source: { width: 1448, height: 1086 },
-    alpha: { width: 1422, height: 1059 },
+    alpha: { x: 0, y: 5, width: 1422, height: 1059 },
     renderWidth: DODGE_HEAD_RENDER_WIDTH,
     hitboxScale: { x: 0.62, y: 0.62 },
     visualGap: { x: 18, y: 18 }
@@ -18,32 +20,51 @@ export const DODGE_OBSTACLE_TYPES = [
     id: "noodle-girl",
     assetKey: "dodge-noodle-girl",
     file: "dodge-noodle-girl.png",
-    source: { width: 1537, height: 1023 },
-    alpha: { width: 1366, height: 837 },
+    source: { width: 1448, height: 1086 },
+    alpha: { x: 0, y: 35, width: 1448, height: 1051 },
     renderWidth: DODGE_NOODLE_GIRL_RENDER_WIDTH,
-    hitboxScale: { x: 0.68, y: 0.64 },
+    hitboxScale: { x: 0.64, y: 0.58 },
+    visualGap: { x: 20, y: 18 }
+  }),
+  createDodgeObstacleType({
+    id: "noodle-man",
+    assetKey: "dodge-noodle-man",
+    file: "dodge-noodle-man.png",
+    source: { width: 1672, height: 941 },
+    alpha: { x: 40, y: 13, width: 1614, height: 928 },
+    renderWidth: DODGE_NOODLE_MAN_RENDER_WIDTH,
+    hitboxScale: { x: 0.58, y: 0.58 },
+    visualGap: { x: 22, y: 18 }
+  }),
+  createDodgeObstacleType({
+    id: "scuba-man",
+    assetKey: "dodge-scuba-man",
+    file: "dodge-scuba-man.png",
+    source: { width: 1536, height: 1024 },
+    alpha: { x: 0, y: 13, width: 1516, height: 987 },
+    renderWidth: DODGE_SCUBA_MAN_RENDER_WIDTH,
+    hitboxScale: { x: 0.6, y: 0.6 },
     visualGap: { x: 20, y: 18 }
   }),
   createDodgeObstacleType({
     id: "tube-girl",
     assetKey: "dodge-tube-girl",
     file: "dodge-tube-girl.png",
-    source: { width: 1050, height: 1498 },
-    alpha: { width: 844, height: 1378 },
+    source: { width: 1254, height: 1254 },
+    alpha: { x: 31, y: 16, width: 1191, height: 1238 },
     renderHeight: DODGE_TUBE_GIRL_RENDER_HEIGHT,
-    hitboxScale: { x: 0.7, y: 0.68 },
+    hitboxScale: { x: 0.62, y: 0.62 },
     visualGap: { x: 18, y: 20 }
   }),
   createDodgeObstacleType({
     id: "tube-woman",
     assetKey: "dodge-tube-woman",
     file: "dodge-tube-woman.png",
-    source: { width: 1254, height: 1254 },
-    alpha: { width: 1145, height: 1192 },
-    renderHeight: DODGE_TUBE_WOMAN_RENDER_HEIGHT,
-    renderOffsetY: 3,
-    hitboxScale: { x: 0.72, y: 0.72 },
-    visualGap: { x: 18, y: 18 }
+    source: { width: 1536, height: 1024 },
+    alpha: { x: 0, y: 21, width: 1510, height: 965 },
+    renderWidth: DODGE_TUBE_WOMAN_RENDER_WIDTH,
+    hitboxScale: { x: 0.62, y: 0.62 },
+    visualGap: { x: 20, y: 18 }
   })
 ];
 
@@ -99,6 +120,8 @@ function createDodgeObstacleType({
       offsetY: renderOffsetY,
       anchor: { x: 0.5, y: 0.5 }
     },
+    source,
+    alpha,
     hitbox: {
       width: width * (alpha.width / source.width),
       height: height * (alpha.height / source.height),

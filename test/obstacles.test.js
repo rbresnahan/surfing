@@ -21,6 +21,8 @@ import {
 
 const HEAD_TYPE = getDodgeObstacleType("head");
 const NOODLE_GIRL_TYPE = getDodgeObstacleType("noodle-girl");
+const NOODLE_MAN_TYPE = getDodgeObstacleType("noodle-man");
+const SCUBA_MAN_TYPE = getDodgeObstacleType("scuba-man");
 const TUBE_GIRL_TYPE = getDodgeObstacleType("tube-girl");
 const TUBE_WOMAN_TYPE = getDodgeObstacleType("tube-woman");
 
@@ -241,11 +243,25 @@ test("runtime source does not reference obsolete dodge assets", async () => {
 test("dodge obstacle registry includes the current active dodge sprites", () => {
   assert.deepEqual(
     DODGE_OBSTACLE_TYPES.map((type) => type.assetKey).sort(),
-    ["dodge-head", "dodge-noodle-girl", "dodge-tube-girl", "dodge-tube-woman"]
+    [
+      "dodge-head",
+      "dodge-noodle-girl",
+      "dodge-noodle-man",
+      "dodge-scuba-man",
+      "dodge-tube-girl",
+      "dodge-tube-woman"
+    ]
   );
   assert.deepEqual(
     DODGE_OBSTACLE_TYPES.map((type) => type.file).sort(),
-    ["dodge-head.png", "dodge-noodle-girl.png", "dodge-tube-girl.png", "dodge-tube-woman.png"]
+    [
+      "dodge-head.png",
+      "dodge-noodle-girl.png",
+      "dodge-noodle-man.png",
+      "dodge-scuba-man.png",
+      "dodge-tube-girl.png",
+      "dodge-tube-woman.png"
+    ]
   );
   assert.equal(DODGE_OBSTACLE_TYPES.every((type) => type.spawnWeight === 1), true);
 });
@@ -262,6 +278,14 @@ test("each registered dodge obstacle keeps its own dimensions, spacing, and coll
     assert.ok(type.render.height > 0);
     assert.ok(type.hitbox.width > 0);
     assert.ok(type.hitbox.height > 0);
+    assert.ok(type.source.width > 0);
+    assert.ok(type.source.height > 0);
+    assert.ok(type.alpha.width > 0);
+    assert.ok(type.alpha.height > 0);
+    assert.ok(type.alpha.x >= 0);
+    assert.ok(type.alpha.y >= 0);
+    assert.ok(type.alpha.x + type.alpha.width <= type.source.width);
+    assert.ok(type.alpha.y + type.alpha.height <= type.source.height);
     assert.ok(type.visualGap.x > 0);
     assert.ok(type.visualGap.y > 0);
     assert.equal(seenIds.has(type.id), false);
@@ -273,21 +297,27 @@ test("each registered dodge obstacle keeps its own dimensions, spacing, and coll
 
 test("weighted dodge obstacle selection returns only registered types deterministically", () => {
   assert.equal(selectDodgeObstacleType(() => 0).id, "head");
-  assert.equal(selectDodgeObstacleType(() => 0.24).id, "head");
-  assert.equal(selectDodgeObstacleType(() => 0.25).id, "noodle-girl");
-  assert.equal(selectDodgeObstacleType(() => 0.49).id, "noodle-girl");
-  assert.equal(selectDodgeObstacleType(() => 0.5).id, "tube-girl");
-  assert.equal(selectDodgeObstacleType(() => 0.74).id, "tube-girl");
-  assert.equal(selectDodgeObstacleType(() => 0.75).id, "tube-woman");
+  assert.equal(selectDodgeObstacleType(() => 0.16).id, "head");
+  assert.equal(selectDodgeObstacleType(() => 0.17).id, "noodle-girl");
+  assert.equal(selectDodgeObstacleType(() => 0.33).id, "noodle-girl");
+  assert.equal(selectDodgeObstacleType(() => 0.34).id, "noodle-man");
+  assert.equal(selectDodgeObstacleType(() => 0.49).id, "noodle-man");
+  assert.equal(selectDodgeObstacleType(() => 0.5).id, "scuba-man");
+  assert.equal(selectDodgeObstacleType(() => 0.66).id, "scuba-man");
+  assert.equal(selectDodgeObstacleType(() => 0.67).id, "tube-girl");
+  assert.equal(selectDodgeObstacleType(() => 0.83).id, "tube-girl");
+  assert.equal(selectDodgeObstacleType(() => 0.84).id, "tube-woman");
   assert.equal(selectDodgeObstacleType(() => 0.99).id, "tube-woman");
 });
 
 test("ordinary obstacle spawning can deterministically select every registered type", () => {
   const samples = [
     [0, "head", "dodge-head"],
-    [0.25, "noodle-girl", "dodge-noodle-girl"],
-    [0.5, "tube-girl", "dodge-tube-girl"],
-    [0.75, "tube-woman", "dodge-tube-woman"]
+    [0.17, "noodle-girl", "dodge-noodle-girl"],
+    [0.34, "noodle-man", "dodge-noodle-man"],
+    [0.5, "scuba-man", "dodge-scuba-man"],
+    [0.67, "tube-girl", "dodge-tube-girl"],
+    [0.84, "tube-woman", "dodge-tube-woman"]
   ];
 
   for (const [selection, id, assetKey] of samples) {
@@ -327,9 +357,11 @@ test("spawned obstacles retain their selected type during update, collision, and
 test("each dodge obstacle preserves its configured source aspect ratio", () => {
   const expectedAspects = new Map([
     ["head", 1448 / 1086],
-    ["noodle-girl", 1537 / 1023],
-    ["tube-girl", 1050 / 1498],
-    ["tube-woman", 1254 / 1254]
+    ["noodle-girl", 1448 / 1086],
+    ["noodle-man", 1672 / 941],
+    ["scuba-man", 1536 / 1024],
+    ["tube-girl", 1254 / 1254],
+    ["tube-woman", 1536 / 1024]
   ]);
 
   for (const type of DODGE_OBSTACLE_TYPES) {
@@ -340,6 +372,8 @@ test("each dodge obstacle preserves its configured source aspect ratio", () => {
 
 test("each dodge obstacle type carries its own collision configuration", () => {
   const head = createDodgeObstacle(400, 300, Math.random, HEAD_TYPE);
+  const noodleMan = createDodgeObstacle(400, 300, Math.random, NOODLE_MAN_TYPE);
+  const scubaMan = createDodgeObstacle(400, 300, Math.random, SCUBA_MAN_TYPE);
   const tubeWoman = createDodgeObstacle(400, 300, Math.random, TUBE_WOMAN_TYPE);
 
   assert.notDeepEqual(
@@ -356,12 +390,20 @@ test("each dodge obstacle type carries its own collision configuration", () => {
       scaleY: tubeWoman.hitboxScaleY
     }
   );
+  assert.notEqual(noodleMan.width, scubaMan.width);
+  assert.notEqual(noodleMan.collisionWidth, scubaMan.collisionWidth);
 });
 
 test("mixed obstacle groups respect the configured visual gap", () => {
   const head = createDodgeObstacle(400, 300, Math.random, HEAD_TYPE);
+  const requiredCenterGap = (
+    head.width +
+    head.visualGapX +
+    tubeWomanVisualWidth() +
+    TUBE_WOMAN_TYPE.visualGap.x
+  ) / 2;
   const tubeWoman = createDodgeObstacle(
-    400 + (head.width + tubeWomanVisualWidth()) / 2 + Math.max(head.visualGapX, TUBE_WOMAN_TYPE.visualGap.x) - 0.1,
+    400 + requiredCenterGap - 0.1,
     300,
     Math.random,
     TUBE_WOMAN_TYPE

@@ -63,12 +63,18 @@ test("angry fisherman finale assets are available under their final names", asyn
   assert.equal(FISHERMAN_FILES.angryFisherman, "angry-fisherman.png");
   assert.equal(FISHERMAN_FILES.angryFishermanToss, "angry-fisherman-toss.png");
   assert.equal(FISHERMAN_FILES.angryFishermanLoss, "angry-fisherman-loss.png");
-  assert.equal(FISHERMAN_FILES.angryFishermanCooler, "angry-fisherman-cooler.png");
-  assert.equal(FISHERMAN_FILES.angryFishermanCoolerDump, "angry-fisherman-cooler-dump.png");
 
   for (const file of Object.values(FISHERMAN_FILES)) {
     await access(new URL(`../assets/${file}`, import.meta.url));
   }
+});
+
+test("cooler-return fisherman artwork is not registered for the current encounter", async () => {
+  assert.equal("angryFishermanCooler" in FISHERMAN_FILES, false);
+  assert.equal("angryFishermanCoolerDump" in FISHERMAN_FILES, false);
+
+  await access(new URL("../assets/angry-fisherman-cooler.png", import.meta.url));
+  await access(new URL("../assets/angry-fisherman-cooler-dump.png", import.meta.url));
 });
 
 test("ordinary throwable items can be randomized while wallet remains final", () => {

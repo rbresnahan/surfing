@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { DODGE_OBSTACLE_TYPES } from "../src/dodgeObstacles.js";
-import { loadAssets } from "../src/assets.js";
+import { loadAssets, WAVE_FRAME_FILES } from "../src/assets.js";
 
 test("asset loader loads registered dodge obstacles", async () => {
   const originalImage = globalThis.Image;
@@ -23,8 +23,85 @@ test("asset loader loads registered dodge obstacles", async () => {
       assert.ok(assets.dodgeObstacles[type.assetKey]);
       assert.ok(loadedSources.includes(`assets/${type.file}`));
     }
+    assert.deepEqual(
+      DODGE_OBSTACLE_TYPES.map((type) => type.file).sort(),
+      [
+        "dodge-head.png",
+        "dodge-noodle-girl.png",
+        "dodge-noodle-man.png",
+        "dodge-scuba-man.png",
+        "dodge-tube-girl.png",
+        "dodge-tube-woman.png"
+      ]
+    );
     assert.equal(loadedSources.includes(["assets/", "head", ".png"].join("")), false);
     assert.equal(loadedSources.includes(["assets/", "dodge", "-tube", ".png"].join("")), false);
+    assert.equal(loadedSources.includes("assets/head-test.png"), false);
+  } finally {
+    globalThis.Image = originalImage;
+    globalThis.Audio = originalAudio;
+  }
+});
+
+test("asset loader preloads exactly the current wave animation frames", async () => {
+  const originalImage = globalThis.Image;
+  const originalAudio = globalThis.Audio;
+  const loadedSources = [];
+
+  globalThis.Image = class MockImage {
+    set src(value) {
+      loadedSources.push(value);
+      queueMicrotask(() => this.onload?.());
+    }
+  };
+  globalThis.Audio = undefined;
+
+  try {
+    const assets = await loadAssets();
+
+    assert.deepEqual(WAVE_FRAME_FILES, [
+      "wave-01.png",
+      "wave-02.png",
+      "wave-03.png",
+      "wave-04.png"
+    ]);
+    assert.equal(assets.waveFrames.length, 4);
+    assert.deepEqual(
+      WAVE_FRAME_FILES.map((file) => `assets/${file}`),
+      loadedSources.filter((src) => src.startsWith("assets/wave-"))
+    );
+  } finally {
+    globalThis.Image = originalImage;
+    globalThis.Audio = originalAudio;
+  }
+});
+
+test("asset loader does not preload archived or future encounter assets", async () => {
+  const originalImage = globalThis.Image;
+  const originalAudio = globalThis.Audio;
+  const loadedSources = [];
+
+  globalThis.Image = class MockImage {
+    set src(value) {
+      loadedSources.push(value);
+      queueMicrotask(() => this.onload?.());
+    }
+  };
+  globalThis.Audio = undefined;
+
+  try {
+    await loadAssets();
+
+    for (const file of [
+      "assets/archive/fisherman-base.png",
+      "assets/archive/head-test.png",
+      "assets/archive/surfer-original-reference.png",
+      "assets/archive/surfer-proto.png",
+      "assets/angry-fisherman-cooler.png",
+      "assets/angry-fisherman-cooler-dump.png"
+    ]) {
+      assert.equal(loadedSources.includes(file), false);
+    }
   } finally {
     globalThis.Image = originalImage;
     globalThis.Audio = originalAudio;
