@@ -1,6 +1,7 @@
 import { loadAssets } from "./assets.js";
 import { createBackgroundMusicController } from "./audio.js";
 import { CONFIG, VERSION } from "./config.js";
+import { createDiagnosticsSink } from "./diagnostics.js";
 import { createEncounterManager } from "./encounterRegistry.js";
 import { Input } from "./input.js";
 import { ObstacleManager } from "./obstacles.js";
@@ -21,8 +22,9 @@ const GameState = {
 
 const input = new Input();
 const surfer = new Surfer();
-const obstacles = new ObstacleManager();
-const encounters = createEncounterManager();
+const diagnostics = createDiagnosticsSink();
+const obstacles = new ObstacleManager({ diagnostics });
+const encounters = createEncounterManager({ diagnostics });
 let assets = null;
 let state = GameState.READY;
 let lastTime = performance.now();
@@ -34,6 +36,9 @@ let waveFrameIndex = 0;
 let waveTimer = 0;
 let waveFrameSeconds = randomWaveFrameSeconds();
 let backgroundMusic = createBackgroundMusicController(null);
+
+setupDiagnosticsControl();
+setupDiagnosticsLifecycleHooks();
 
 loadAssets()
   .then((loaded) => {
@@ -73,7 +78,8 @@ function update(dt) {
     encounters.update(runDt, gameState);
     headsDodged += obstacles.update(runDt, survivalTime, surfer.y, {
       pauseSpawns: encounters.shouldPauseNormalSpawns(),
-      difficultyStage: encounters.difficultyStage
+      difficultyStage: encounters.difficultyStage,
+      pauseOwner: diagnostics.enabled && encounters.activeEncounter ? diagnostics.occurrenceId(encounters.activeEncounter) : null
     });
     checkCollision();
   } else if (state === GameState.CRASHED) {
@@ -82,6 +88,18 @@ function update(dt) {
 }
 
 function startRun() {
+  const restarting = state === GameState.CRASHED;
+  if (restarting) {
+    diagnostics.restart({
+      elapsedSeconds: survivalTime,
+      previousRunOpenObjects: obstacles.encounterObstacles.length + obstacles.activeEvents.flatMap((event) => event.heads).length
+    });
+  }
+  diagnostics.startRun({
+    elapsedSeconds: 0,
+    config: CONFIG,
+    deterministicSeed: null
+  });
   state = GameState.RUNNING;
   survivalTime = 0;
   headsDodged = 0;
@@ -97,8 +115,14 @@ function crash() {
   state = GameState.CRASHED;
   finalScore = calculateScore(survivalTime, headsDodged);
   records = saveRecords({ survivalTime, headsDodged, score: finalScore, nonScoring: encounters.nonScoringDebugRun });
-  obstacles.markCollided();
+  obstacles.markCollided(survivalTime);
   encounters.cleanupActive(buildEncounterGameState());
+  diagnostics.endRun({
+    elapsedSeconds: survivalTime,
+    finalScore,
+    headsDodged,
+    survivalTime
+  });
 }
 
 function checkCollision() {
@@ -149,8 +173,47 @@ function buildEncounterGameState() {
     obstacles,
     assets,
     music: backgroundMusic,
-    difficultyStage: encounters.difficultyStage
+    difficultyStage: encounters.difficultyStage,
+    diagnostics,
+    occurrenceId: diagnostics.enabled && encounters.activeEncounter ? diagnostics.occurrenceId(encounters.activeEncounter) : null
   };
+}
+
+function setupDiagnosticsControl() {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "diagnostics-open";
+  button.textContent = "Open Run Diagnostics";
+  button.addEventListener("click", () => {
+    try {
+      window.open("diagnostics.html", "surf-run-diagnostics", "popup,width=1040,height=760");
+    } catch {
+      // Opening is user-initiated; if the browser blocks it, gameplay continues.
+    }
+    diagnostics.enable(survivalTime);
+  });
+  document.body.appendChild(button);
+}
+
+function setupDiagnosticsLifecycleHooks() {
+  window.addEventListener("error", (event) => {
+    diagnostics.emit("diagnostics.error", {
+      elapsedSeconds: survivalTime,
+      message: event.message,
+      source: event.filename,
+      line: event.lineno,
+      column: event.colno
+    });
+  });
+  window.addEventListener("unhandledrejection", (event) => {
+    diagnostics.emit("diagnostics.error", {
+      elapsedSeconds: survivalTime,
+      message: event.reason?.message ?? String(event.reason)
+    });
+  });
+  window.addEventListener("beforeunload", () => {
+    diagnostics.teardown({ elapsedSeconds: survivalTime });
+  });
 }
 
 function drawBackground() {

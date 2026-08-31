@@ -23,6 +23,6 @@ export function registerConfiguredEncounters(
   return manager;
 }
 
-export function createEncounterManager() {
-  return registerConfiguredEncounters(new EncounterManager());
+export function createEncounterManager(options = {}) {
+  return registerConfiguredEncounters(new EncounterManager(options));
 }

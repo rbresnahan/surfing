@@ -51,8 +51,11 @@ export class CoolerFishermanEncounter {
     return this.phase === COOLER_PHASES.WAITING && gameState.elapsedMs >= this.startTimeMs;
   }
 
-  start() {
+  start(gameState = null) {
     this.resetInternal();
+    this.lastGameState = gameState;
+    this.occurrenceId = gameState?.occurrenceId ?? null;
+    this.diagnostics = gameState?.diagnostics ?? null;
     this.phase = COOLER_PHASES.ENTERING;
     this.started = true;
     this.x = CONFIG.WIDTH + this.boatWidth / 2 + 20;
@@ -247,6 +250,9 @@ export class CoolerFishermanEncounter {
       item,
       row: planItem.row,
       patternId: this.activeWave.pattern,
+      diagnosticsObjectId: this.diagnostics?.objectId({ item, row: planItem.row, waveIndex: this.waveIndex }, "rowboat-object"),
+      diagnosticsOwner: this.occurrenceId,
+      occurrenceId: this.occurrenceId,
       age: 0,
       duration: CONFIG.COOLER_DROP_DURATION_SECONDS,
       startX,
@@ -254,6 +260,34 @@ export class CoolerFishermanEncounter {
       landingX,
       landingY,
       impacted: false
+    });
+    const drop = this.drops.at(-1);
+    if (this.diagnostics?.markObjectCreated?.(drop.diagnosticsObjectId) !== false) {
+      this.diagnostics?.emit("object.created", {
+      elapsedSeconds: this.lastGameState?.elapsedSeconds ?? 0,
+      occurrenceId: this.occurrenceId,
+      encounterType: this.id,
+      objectId: drop.diagnosticsObjectId,
+      objectType: "rowboat-item",
+      owner: this.occurrenceId,
+      source: this.id,
+      row: planItem.row,
+      y: landingY,
+      itemId: item.id,
+      patternId: this.activeWave.pattern
+      });
+    }
+    this.diagnostics?.emit("object.rowboat_release", {
+      elapsedSeconds: this.lastGameState?.elapsedSeconds ?? 0,
+      occurrenceId: this.occurrenceId,
+      encounterType: this.id,
+      objectId: drop.diagnosticsObjectId,
+      objectType: "rowboat-item",
+      owner: this.occurrenceId,
+      rowboatRow: planItem.row,
+      releasedItemRow: planItem.row,
+      boatReleaseY: releasePoint.y,
+      itemId: item.id
     });
 
     this.lastReleasedItems.push(item.id);
@@ -268,7 +302,11 @@ export class CoolerFishermanEncounter {
         drop.impacted = true;
         gameState?.obstacles?.addObstacle?.(createWaterObstacle(drop.item, drop.landingX, drop.landingY, {
           row: drop.row,
-          patternId: drop.patternId
+          patternId: drop.patternId,
+          diagnosticsOwner: drop.diagnosticsOwner,
+          diagnosticsObjectId: drop.diagnosticsObjectId,
+          occurrenceId: drop.occurrenceId,
+          elapsedSeconds: gameState?.elapsedSeconds ?? 0
         }));
       }
       return false;
@@ -307,6 +345,8 @@ export class CoolerFishermanEncounter {
     this.processedRowCrossings = new Set();
     this.started = false;
     this.lastGameState = null;
+    this.occurrenceId = null;
+    this.diagnostics = null;
     this.boatWidth = CONFIG.FISHERMAN_DISPLAY_WIDTH;
   }
 }
@@ -354,6 +394,10 @@ export function createWaterObstacle(item, x, y, options = {}) {
   const { width, height } = waterRenderSize(item);
   return {
     source: "angry-fisherman-cooler",
+    diagnosticsOwner: options.diagnosticsOwner ?? null,
+    diagnosticsObjectId: options.diagnosticsObjectId ?? null,
+    occurrenceId: options.occurrenceId ?? null,
+    elapsedSeconds: options.elapsedSeconds ?? 0,
     assetKey: item.waterAssetKey,
     x,
     y,

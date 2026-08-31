@@ -25,6 +25,24 @@ body {
     #061820;
 }
 
+.diagnostics-open {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  z-index: 2;
+  padding: 8px 12px;
+  border: 1px solid rgba(244, 251, 255, 0.5);
+  border-radius: 4px;
+  color: #f4fbff;
+  background: rgba(4, 18, 26, 0.76);
+  font: 13px "Courier New", Courier, monospace;
+  cursor: pointer;
+}
+
+.diagnostics-open:hover {
+  background: rgba(18, 79, 98, 0.86);
+}
+
 .game-shell {
   width: min(100vw, calc(100vh * 16 / 9));
   height: min(100vh, calc(100vw * 9 / 16));
@@ -39,4 +57,126 @@ canvas {
   image-rendering: pixelated;
   image-rendering: crisp-edges;
   background: #0d8db1;
+}
+
+.diagnostics-page {
+  display: block;
+  overflow: auto;
+  background: #071117;
+}
+
+.diagnostics-shell {
+  width: min(1180px, calc(100vw - 32px));
+  margin: 24px auto;
+}
+
+.diagnostics-header {
+  display: flex;
+  gap: 16px;
+  align-items: start;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(244, 251, 255, 0.18);
+  padding-bottom: 16px;
+}
+
+.diagnostics-header h1,
+.diagnostics-grid h2,
+.diagnostics-shell h2 {
+  margin: 0 0 8px;
+  font-size: 20px;
+}
+
+.diagnostics-header p {
+  margin: 0;
+  color: #a9c4ce;
+}
+
+.diagnostics-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.diagnostics-actions button {
+  padding: 8px 10px;
+  border: 1px solid rgba(244, 251, 255, 0.42);
+  border-radius: 4px;
+  color: #f4fbff;
+  background: #123645;
+  font: 13px "Courier New", Courier, monospace;
+  cursor: pointer;
+}
+
+.diagnostics-status {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin: 18px 0;
+  padding: 12px;
+  border: 1px solid rgba(244, 251, 255, 0.16);
+  border-radius: 4px;
+  background: #0c202a;
+}
+
+.diagnostics-status strong {
+  min-width: 96px;
+}
+
+.diagnostics-status .pass {
+  color: #86f0b8;
+}
+
+.diagnostics-status .fail {
+  color: #ff8d8d;
+}
+
+.diagnostics-status .incomplete {
+  color: #ffd27a;
+}
+
+.diagnostics-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 16px;
+}
+
+.diagnostics-grid > div,
+.diagnostics-shell section:last-child {
+  border: 1px solid rgba(244, 251, 255, 0.16);
+  border-radius: 4px;
+  background: #0c202a;
+  padding: 12px;
+}
+
+.diagnostics-grid ul,
+.diagnostics-grid ol {
+  min-height: 140px;
+  max-height: 260px;
+  overflow: auto;
+  margin: 0;
+  padding-left: 22px;
+}
+
+#diagnostic-report {
+  min-height: 360px;
+  max-height: 58vh;
+  overflow: auto;
+  margin: 0;
+  white-space: pre-wrap;
+  color: #d8edf4;
+}
+
+@media (max-width: 760px) {
+  .diagnostics-header,
+  .diagnostics-status {
+    display: block;
+  }
+
+  .diagnostics-actions {
+    margin-top: 12px;
+  }
+
+  .diagnostics-grid {
+    grid-template-columns: 1fr;
+  }
 }

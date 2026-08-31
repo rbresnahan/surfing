@@ -1,22 +1,29 @@
 import { CONFIG } from "./config.js";
 
 export class EncounterManager {
-  constructor() {
+  constructor({ diagnostics = null } = {}) {
+    this.diagnostics = diagnostics;
     this.registeredEncounters = [];
+    this.registrationKeys = new WeakMap();
     this.reset();
   }
 
   register(encounter) {
+    this.registrationKeys.set(encounter, `${this.registeredEncounters.length}:${encounter.id}`);
     this.registeredEncounters.push(encounter);
   }
 
   reset() {
     if (this.activeEncounter) {
+      this.recordCleanupStarted(this.activeEncounter, this.lastElapsedSeconds ?? 0);
       this.activeEncounter.cleanup();
+      this.recordCleanupFinished(this.activeEncounter, this.lastElapsedSeconds ?? 0);
     }
     for (const encounter of this.registeredEncounters) {
       if (encounter === this.activeEncounter) continue;
+      this.recordCleanupStarted(encounter, this.lastElapsedSeconds ?? 0);
       encounter.cleanup?.();
+      this.recordCleanupFinished(encounter, this.lastElapsedSeconds ?? 0);
     }
     this.activeEncounter = null;
     this.completedEncounterIds = new Set();
@@ -24,18 +31,33 @@ export class EncounterManager {
     this.postEncounterGraceTimer = 0;
     this.difficultyStage = CONFIG.DEBUG_START_STAGE ?? 0;
     this.nonScoringDebugRun = CONFIG.DEBUG_START_STAGE !== null || CONFIG.DEBUG_REDUCED_SPEED_MULTIPLIER !== 1;
+    this.activePhase = null;
+    this.lastElapsedSeconds = 0;
+    this.lastGraceOwner = null;
+    this.scheduleRegisteredEncounters();
   }
 
   update(dt, gameState) {
     if (!CONFIG.ENCOUNTERS_ENABLED) return;
+    this.lastElapsedSeconds = gameState.elapsedSeconds ?? 0;
 
     if (this.postEncounterGraceTimer > 0) {
       this.postEncounterGraceTimer = Math.max(0, this.postEncounterGraceTimer - dt);
+      if (this.postEncounterGraceTimer === 0 && this.lastGraceOwner) {
+        this.diagnostics?.emit("encounter.grace_ended", {
+          elapsedSeconds: gameState.elapsedSeconds ?? 0,
+          occurrenceId: this.lastGraceOwner.occurrenceId,
+          encounterType: this.lastGraceOwner.encounterType,
+          owner: this.lastGraceOwner.occurrenceId
+        });
+        this.lastGraceOwner = null;
+      }
       return;
     }
 
     if (this.activeEncounter) {
       this.activeEncounter.update(dt, gameState);
+      this.recordPhaseIfChanged(this.activeEncounter, gameState.elapsedSeconds ?? 0);
       if (this.activeEncounter.isComplete()) {
         this.completeActiveEncounter(gameState);
       }
@@ -49,7 +71,21 @@ export class EncounterManager {
     if (encounter.type === "major") {
       this.startedMajorEncounter = true;
     }
-    encounter.start(gameState);
+    const occurrenceId = this.diagnostics?.occurrenceId(encounter);
+    encounter.start({
+      ...gameState,
+      diagnostics: this.diagnostics,
+      occurrenceId
+    });
+    this.activePhase = "inactive";
+    this.diagnostics?.emit("encounter.activated", {
+      elapsedSeconds: gameState.elapsedSeconds ?? 0,
+      occurrenceId,
+      encounterType: encounter.id,
+      owner: occurrenceId,
+      phase: encounterPhase(encounter)
+    });
+    this.recordPhaseIfChanged(encounter, gameState.elapsedSeconds ?? 0, true);
   }
 
   render(ctx, gameState) {
@@ -68,13 +104,16 @@ export class EncounterManager {
 
   cleanupActive(gameState) {
     if (!this.activeEncounter) return;
+    this.recordCleanupStarted(this.activeEncounter, gameState?.elapsedSeconds ?? this.lastElapsedSeconds ?? 0);
     this.activeEncounter.cleanup(gameState);
+    this.recordCleanupFinished(this.activeEncounter, gameState?.elapsedSeconds ?? this.lastElapsedSeconds ?? 0, gameState);
     this.activeEncounter = null;
+    this.activePhase = null;
   }
 
   selectEncounter(gameState) {
     const candidates = this.registeredEncounters.filter((encounter) => {
-      if (this.completedEncounterIds.has(encounter.id)) return false;
+      if (this.completedEncounterIds.has(this.registrationKey(encounter))) return false;
       if (encounter.type === "major" && this.startedMajorEncounter) return false;
       if (encounter.exclusive && this.hasExclusiveEncounter()) return false;
       return encounter.canStart(gameState);
@@ -85,11 +124,31 @@ export class EncounterManager {
 
   completeActiveEncounter(gameState) {
     const encounter = this.activeEncounter;
-    this.completedEncounterIds.add(encounter.id);
+    this.completedEncounterIds.add(this.registrationKey(encounter));
+    const occurrenceId = this.diagnostics?.occurrenceId(encounter);
+    this.diagnostics?.emit("encounter.completed", {
+      elapsedSeconds: gameState.elapsedSeconds ?? 0,
+      occurrenceId,
+      encounterType: encounter.id,
+      owner: occurrenceId
+    });
     this.advanceDifficultyForEncounter(encounter);
     this.postEncounterGraceTimer = encounter.postEncounterGraceSeconds ?? 0;
+    if (this.postEncounterGraceTimer > 0) {
+      this.lastGraceOwner = { occurrenceId, encounterType: encounter.id };
+      this.diagnostics?.emit("encounter.grace_started", {
+        elapsedSeconds: gameState.elapsedSeconds ?? 0,
+        occurrenceId,
+        encounterType: encounter.id,
+        owner: occurrenceId,
+        durationSeconds: this.postEncounterGraceTimer
+      });
+    }
+    this.recordCleanupStarted(encounter, gameState.elapsedSeconds ?? 0);
     encounter.cleanup(gameState);
+    this.recordCleanupFinished(encounter, gameState.elapsedSeconds ?? 0, gameState);
     this.activeEncounter = null;
+    this.activePhase = null;
   }
 
   advanceDifficultyForEncounter(encounter) {
@@ -102,4 +161,72 @@ export class EncounterManager {
   hasExclusiveEncounter() {
     return this.activeEncounter?.exclusive === true;
   }
+
+  registrationKey(encounter) {
+    return this.registrationKeys.get(encounter) ?? encounter.id;
+  }
+
+  scheduleRegisteredEncounters() {
+    if (!this.diagnostics?.enabled) return;
+    for (const encounter of this.registeredEncounters) {
+      const occurrenceId = this.diagnostics.occurrenceId(encounter);
+      this.diagnostics.emit("encounter.scheduled", {
+        elapsedSeconds: 0,
+        occurrenceId,
+        encounterType: encounter.id,
+        owner: occurrenceId,
+        startTimeMs: encounter.startTimeMs ?? null,
+        type: encounter.type ?? null
+      });
+    }
+  }
+
+  recordPhaseIfChanged(encounter, elapsedSeconds, force = false) {
+    if (!this.diagnostics?.enabled) return;
+    const nextPhase = encounterPhase(encounter);
+    if (!force && nextPhase === this.activePhase) return;
+    const previousPhase = this.activePhase;
+    this.activePhase = nextPhase;
+    const occurrenceId = this.diagnostics.occurrenceId(encounter);
+    this.diagnostics.emit("encounter.phase_transition", {
+      elapsedSeconds,
+      occurrenceId,
+      encounterType: encounter.id,
+      owner: occurrenceId,
+      from: previousPhase,
+      to: nextPhase
+    });
+  }
+
+  recordCleanupStarted(encounter, elapsedSeconds) {
+    if (!this.diagnostics?.enabled) return;
+    const occurrenceId = this.diagnostics.occurrenceId(encounter);
+    this.diagnostics.emit("encounter.cleanup_started", {
+      elapsedSeconds,
+      occurrenceId,
+      encounterType: encounter.id,
+      owner: occurrenceId
+    });
+  }
+
+  recordCleanupFinished(encounter, elapsedSeconds, gameState = null) {
+    if (!this.diagnostics?.enabled) return;
+    const occurrenceId = this.diagnostics.occurrenceId(encounter);
+    this.diagnostics.emit("encounter.cleanup_finished", {
+      elapsedSeconds,
+      occurrenceId,
+      encounterType: encounter.id,
+      owner: occurrenceId,
+      remainingOwnedObjects: gameState?.obstacles?.countEncounterObstaclesBySource?.(encounter.id) ?? "not observed",
+      temporaryState: "not observed"
+    });
+  }
+}
+
+function encounterPhase(encounter) {
+  return normalizePhase(encounter.phase ?? encounter.state ?? "inactive");
+}
+
+function normalizePhase(phase) {
+  return String(phase).toLowerCase().replaceAll("_", "-");
 }

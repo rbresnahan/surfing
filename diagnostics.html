@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Surfing Run Diagnostics</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body class="diagnostics-page">
+    <main class="diagnostics-shell">
+      <header class="diagnostics-header">
+        <div>
+          <h1>Run Diagnostics</h1>
+          <p id="diagnostic-meta">Waiting for a run...</p>
+        </div>
+        <div class="diagnostics-actions">
+          <button id="copy-report" type="button">Copy Report</button>
+          <button id="download-json" type="button">Download JSON</button>
+        </div>
+      </header>
+      <section class="diagnostics-status" aria-live="polite">
+        <strong id="diagnostic-result">INCOMPLETE</strong>
+        <span id="diagnostic-summary">Open a game run to begin capturing events.</span>
+      </section>
+      <section class="diagnostics-grid">
+        <div>
+          <h2>Warnings</h2>
+          <ul id="diagnostic-warnings"></ul>
+        </div>
+        <div>
+          <h2>Events</h2>
+          <ol id="diagnostic-events"></ol>
+        </div>
+      </section>
+      <section>
+        <h2>Readable Report</h2>
+        <pre id="diagnostic-report"></pre>
+      </section>
+    </main>
+    <script type="module" src="src/diagnosticsWindow.js"></script>
+  </body>
+</html>

@@ -109,7 +109,8 @@ export function isHeadVisiblyPresent(head) {
 }
 
 export class ObstacleManager {
-  constructor() {
+  constructor({ diagnostics = null } = {}) {
+    this.diagnostics = diagnostics;
     this.reset();
   }
 
@@ -118,6 +119,7 @@ export class ObstacleManager {
     this.encounterObstacles = [];
     this.spawnTimer = 0.55;
     this.scheduler = new DeterministicObstacleScheduler();
+    this.lastPauseSpawns = false;
   }
 
   get activeEvent() {
@@ -131,18 +133,31 @@ export class ObstacleManager {
   update(dt, elapsed, surferY, options = {}) {
     const pauseSpawns = options.pauseSpawns === true;
     const difficultyStage = options.difficultyStage ?? 0;
-    const encounterDodged = this.updateEncounterObstacles(dt);
+    this.recordSpawnSuppression(pauseSpawns, elapsed, options.pauseOwner ?? null);
+    const encounterDodged = this.updateEncounterObstacles(dt, elapsed);
+    const normalEventCountAtStart = this.activeEvents.length;
     const hadNormalEventsAtStart = this.activeEvents.length > 0;
 
     let normalDodged = 0;
     let completedNormalEvent = false;
     for (const event of this.activeEvents) {
       updateObstacles(event.heads, dt, event.speed);
-      const newlyDodged = event.heads.filter((head) => head.resolved && !head.counted).length;
+      const newlyDodgedHeads = event.heads.filter((head) => head.resolved && !head.counted);
       event.heads.forEach((head) => {
-        if (head.resolved) head.counted = true;
+        if (!head.resolved) return;
+        if (!head.counted && !event.collided) {
+          this.recordObjectEvent("object.dodge_awarded", head, elapsed, {
+            objectType: "normal-obstacle",
+            reason: "dodged"
+          });
+          this.recordObjectEvent("object.removed", head, elapsed, {
+            objectType: "normal-obstacle",
+            reason: "dodged"
+          });
+        }
+        head.counted = true;
       });
-      normalDodged += event.collided ? 0 : newlyDodged;
+      normalDodged += event.collided ? 0 : newlyDodgedHeads.length;
       updateEventThreat(event);
     }
 
@@ -164,32 +179,55 @@ export class ObstacleManager {
       });
       if (event) {
         this.activeEvents.push(event);
+        this.recordNormalEventCreated(event, elapsed);
         this.spawnTimer = stageTuning(difficultyStage).spawnDelaySeconds;
       } else {
         this.spawnTimer = 0.08;
       }
     }
 
+    if (pauseSpawns && this.activeEvents.length > normalEventCountAtStart) {
+      this.diagnostics?.emit("normal_spawn.violation", {
+        elapsedSeconds: elapsed,
+        owner: options.pauseOwner ?? null,
+        spawnTimer: this.spawnTimer
+      });
+    }
+
     return normalDodged + encounterDodged;
   }
 
-  updateEncounterObstacles(dt) {
+  updateEncounterObstacles(dt, elapsed = 0) {
     updateObstacles(this.encounterObstacles, dt);
 
-    const newlyDodged = this.encounterObstacles.filter((obstacle) => obstacle.resolved && !obstacle.counted).length;
+    const newlyDodgedObstacles = this.encounterObstacles.filter((obstacle) => obstacle.resolved && !obstacle.counted);
     this.encounterObstacles.forEach((obstacle) => {
-      if (obstacle.resolved) obstacle.counted = true;
+      if (!obstacle.resolved) return;
+      if (!obstacle.counted) {
+        this.recordObjectEvent("object.dodge_awarded", obstacle, elapsed, {
+          objectType: "encounter-obstacle",
+          reason: "dodged"
+        });
+        this.recordObjectEvent("object.removed", obstacle, elapsed, {
+          objectType: "encounter-obstacle",
+          owner: obstacle.diagnosticsOwner ?? obstacle.source ?? null,
+          reason: "dodged"
+        });
+      }
+      obstacle.counted = true;
     });
     this.encounterObstacles = this.encounterObstacles.filter((obstacle) => !obstacle.resolved);
 
-    return newlyDodged;
+    return newlyDodgedObstacles.length;
   }
 
   addObstacle(obstacle) {
     const row = isValidObstacleRow(obstacle.row) ? obstacle.row : nearestObstacleRow(obstacle.y);
-    this.encounterObstacles.push({
+    const created = {
       type: "encounter",
       source: obstacle.source ?? null,
+      diagnosticsOwner: obstacle.diagnosticsOwner ?? null,
+      diagnosticsObjectId: obstacle.diagnosticsObjectId ?? null,
       assetKey: obstacle.assetKey,
       x: obstacle.x,
       y: obstacle.y ?? obstacleRowCenter(row),
@@ -210,6 +248,22 @@ export class ObstacleManager {
       bobOffset: obstacle.bobOffset ?? deterministicBobOffset(obstacle),
       resolved: false,
       counted: false
+    };
+    this.encounterObstacles.push(created);
+    const objectId = obstacle.diagnosticsObjectId ?? this.diagnostics?.objectId(created, "encounter-object");
+    if (!this.diagnostics?.markObjectCreated?.(objectId)) return;
+    this.diagnostics?.emit("object.created", {
+      elapsedSeconds: obstacle.elapsedSeconds ?? 0,
+      occurrenceId: obstacle.occurrenceId ?? null,
+      encounterType: obstacle.source ?? null,
+      objectId,
+      objectType: "encounter-obstacle",
+      owner: obstacle.diagnosticsOwner ?? obstacle.occurrenceId ?? obstacle.source ?? null,
+      source: obstacle.source ?? null,
+      assetKey: obstacle.assetKey,
+      row,
+      y: created.y,
+      patternId: obstacle.patternId ?? null
     });
   }
 
@@ -276,14 +330,73 @@ export class ObstacleManager {
     return this.activeEvents.flatMap((event) => event.heads.filter(isHeadVisiblyPresent));
   }
 
-  markCollided() {
+  markCollided(elapsed = 0) {
     for (const event of this.activeEvents) {
       event.collided = true;
+      for (const head of event.heads) {
+        if (head.resolved) continue;
+        this.recordObjectEvent("object.collision", head, elapsed, {
+          objectType: "normal-obstacle",
+          reason: "collision"
+        });
+      }
     }
   }
 
   clearEncounterObstaclesBySource(source) {
+    const removed = this.encounterObstacles.filter((obstacle) => obstacle.source === source);
+    for (const obstacle of removed) {
+      this.recordObjectEvent("object.removed", obstacle, 0, {
+        objectType: "encounter-obstacle",
+        owner: obstacle.diagnosticsOwner ?? obstacle.source ?? null,
+        reason: "cleanup"
+      });
+    }
     this.encounterObstacles = this.encounterObstacles.filter((obstacle) => obstacle.source !== source);
+  }
+
+  countEncounterObstaclesBySource(source) {
+    return this.encounterObstacles.filter((obstacle) => obstacle.source === source).length;
+  }
+
+  recordSpawnSuppression(pauseSpawns, elapsed, owner) {
+    if (!this.diagnostics?.enabled || pauseSpawns === this.lastPauseSpawns) return;
+    this.diagnostics.emit(pauseSpawns ? "normal_spawn.suppressed" : "normal_spawn.restored", {
+      elapsedSeconds: elapsed,
+      owner
+    });
+    this.lastPauseSpawns = pauseSpawns;
+  }
+
+  recordNormalEventCreated(event, elapsed) {
+    if (!this.diagnostics?.enabled) return;
+    for (const head of event.heads) {
+      const objectId = this.diagnostics.objectId(head, "normal-object");
+      this.diagnostics.emit("object.created", {
+        elapsedSeconds: elapsed,
+        objectId,
+        objectType: "normal-obstacle",
+        owner: "normal-spawn",
+        source: "normal-spawn",
+        row: head.row,
+        y: head.y,
+        patternId: head.patternId ?? event.patternId
+      });
+    }
+  }
+
+  recordObjectEvent(type, object, elapsed, payload = {}) {
+    if (!this.diagnostics?.enabled) return;
+    const objectId = object.diagnosticsObjectId ?? this.diagnostics.objectId(object, payload.objectType === "normal-obstacle" ? "normal-object" : "encounter-object");
+    this.diagnostics.emit(type, {
+      elapsedSeconds: elapsed,
+      objectId,
+      objectType: payload.objectType ?? object.type ?? null,
+      owner: payload.owner ?? object.diagnosticsOwner ?? object.source ?? null,
+      row: object.row,
+      source: object.source ?? null,
+      reason: payload.reason ?? null
+    });
   }
 }
 

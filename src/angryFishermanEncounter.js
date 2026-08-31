@@ -127,6 +127,8 @@ export class AngryFishermanEncounter {
   start(gameState = null) {
     this.resetInternal();
     this.lastGameState = gameState;
+    this.occurrenceId = gameState?.occurrenceId ?? null;
+    this.diagnostics = gameState?.diagnostics ?? null;
     this.throwOrder = createThrowOrder(this.random);
     this.throwRows = [...FISHERMAN_THROW_ROWS];
     this.state = FISHERMAN_STATES.ENTERING;
@@ -262,6 +264,8 @@ export class AngryFishermanEncounter {
     this.lossSpriteActive = false;
     this.projectiles = [];
     this.lastGameState = null;
+    this.occurrenceId = null;
+    this.diagnostics = null;
     this.boatWidth = CONFIG.FISHERMAN_DISPLAY_WIDTH;
   }
 
@@ -294,7 +298,36 @@ export class AngryFishermanEncounter {
     const projectile = createProjectile(item, this.x, this.y, {
       row,
       patternId: "angry-fisherman-throw",
-      onLanded: item.id === WALLET_THROWABLE_ID ? () => this.handleWalletLanded() : null
+      onLanded: item.id === WALLET_THROWABLE_ID ? () => this.handleWalletLanded() : null,
+      diagnosticsObjectId: this.diagnostics?.objectId({ item, row, ammoIndex: this.ammoIndex }, "rowboat-object"),
+      diagnosticsOwner: this.occurrenceId,
+      occurrenceId: this.occurrenceId
+    });
+    if (this.diagnostics?.markObjectCreated?.(projectile.diagnosticsObjectId) !== false) {
+      this.diagnostics?.emit("object.created", {
+      elapsedSeconds: gameState?.elapsedSeconds ?? 0,
+      occurrenceId: this.occurrenceId,
+      encounterType: this.id,
+      objectId: projectile.diagnosticsObjectId,
+      objectType: "rowboat-item",
+      owner: this.occurrenceId,
+      source: this.id,
+      row,
+      y: projectile.landingY,
+      itemId: item.id,
+      patternId: projectile.patternId
+      });
+    }
+    this.diagnostics?.emit("object.rowboat_release", {
+      elapsedSeconds: gameState?.elapsedSeconds ?? 0,
+      occurrenceId: this.occurrenceId,
+      encounterType: this.id,
+      objectId: projectile.diagnosticsObjectId,
+      objectType: "rowboat-item",
+      owner: this.occurrenceId,
+      rowboatRow: nearestObstacleRow(this.y + 26),
+      releasedItemRow: row,
+      itemId: item.id
     });
     if (item.id === WALLET_THROWABLE_ID) {
       this.walletState = WalletState.AIRBORNE;
@@ -331,6 +364,9 @@ export function createProjectile(item, boatX, boatY, options = {}) {
     item,
     row,
     patternId: options.patternId ?? null,
+    diagnosticsObjectId: options.diagnosticsObjectId ?? null,
+    diagnosticsOwner: options.diagnosticsOwner ?? null,
+    occurrenceId: options.occurrenceId ?? null,
     age: 0,
     duration: projectileDurationSeconds(item),
     startX,
@@ -355,6 +391,9 @@ export function updateProjectile(projectile, dt, gameState) {
   projectile.impacted = true;
   gameState.obstacles.addObstacle({
     source: "angry-fisherman",
+    diagnosticsOwner: projectile.diagnosticsOwner,
+    diagnosticsObjectId: projectile.diagnosticsObjectId,
+    occurrenceId: projectile.occurrenceId,
     assetKey: projectile.item.waterAssetKey,
     x: projectile.landingX,
     y: projectile.landingY,
