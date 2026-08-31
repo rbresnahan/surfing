@@ -376,6 +376,19 @@ test("ordinary obstacle spawning uses authored deterministic obstacle types", ()
   assert.deepEqual(event.heads.map((head) => head.assetKey), ["dodge-head", "dodge-tube-woman"]);
 });
 
+test("a normal fairness-validated pattern can spawn noodle-man", () => {
+  const pattern = PATTERN_BY_ID["stage2-sweeping-staircase"];
+  const event = createObstacleEvent({ surferY: 300, elapsed: 0, pattern, difficultyStage: 2 });
+
+  assert.notEqual(event, null);
+  assert.equal(event.patternId, "stage2-sweeping-staircase");
+  assert.deepEqual(event.heads.map((head) => [head.row, head.obstacleTypeId, head.assetKey, head.timeOffset]), [
+    [3, "noodle-man", "dodge-noodle-man", 0]
+  ]);
+  assert.equal(isEventFair(event, 300, event.speed), true);
+  assert.equal(isEventPlacementClear(event), true);
+});
+
 test("row geometry calculates exactly six centers inside the playable bounds", () => {
   const centers = obstacleRowCenters();
 
@@ -404,6 +417,57 @@ test("deterministic scheduler repeats the same stage sequence after reset", () =
 
   assert.deepEqual(first, second);
   assert.equal(first.every((event) => stageTuning(0).schedule.includes(event.patternId)), true);
+});
+
+test("stage 2 deterministic schedule keeps noodle-man reachable after cooler fallback", () => {
+  const first = sampleStageEvents(2, 5);
+  const second = sampleStageEvents(2, 5);
+
+  assert.deepEqual(first, second);
+  assert.deepEqual(first.map((event) => event.patternId), [
+    "stage2-staggered-diagonal",
+    "stage2-sweeping-staircase",
+    "stage2-split-clusters",
+    "stage2-dense-gate",
+    "stage2-long-weave"
+  ]);
+  assert.deepEqual(first[1].heads, [
+    ["noodle-man", "dodge-noodle-man", 3, 0]
+  ]);
+});
+
+test("post-encounter stage 2 manager path resumes normal swimmers and reaches noodle-man", () => {
+  const manager = new ObstacleManager();
+  const spawned = [];
+
+  manager.spawnTimer = 0;
+  manager.update(0.01, 120, 300, { difficultyStage: 2 });
+  spawned.push(manager.activeEvent);
+  resolveActiveEvent(manager);
+  manager.update(0.01, 121, 300, { difficultyStage: 2 });
+  manager.update(stageTuning(2).spawnDelaySeconds, 122, 300, { difficultyStage: 2 });
+  spawned.push(manager.activeEvent);
+
+  assert.deepEqual(spawned.map((event) => event.patternId), [
+    "stage2-staggered-diagonal",
+    "stage2-sweeping-staircase"
+  ]);
+  assert.equal(spawned[1].heads.some((head) => head.assetKey === "dodge-noodle-man"), true);
+});
+
+test("scheduled stage 2 patterns are runtime-valid with actual dodge sprite geometry", () => {
+  for (const patternId of stageTuning(2).schedule) {
+    const event = createObstacleEvent({
+      surferY: 300,
+      elapsed: 0,
+      pattern: PATTERN_BY_ID[patternId],
+      difficultyStage: 2
+    });
+
+    assert.notEqual(event, null, patternId);
+    assert.equal(isEventFair(event, 300, event.speed), true, patternId);
+    assert.equal(isEventPlacementClear(event), true, patternId);
+  }
 });
 
 test("no gameplay RNG changes ordinary obstacle schedule", () => {
@@ -589,6 +653,24 @@ test("spawned obstacles retain their selected type during update, collision, and
   }
 });
 
+test("noodle-man scale and alpha-derived collision remain unchanged", () => {
+  const obstacle = createDodgeObstacle(420, obstacleRowCenter(3), Math.random, NOODLE_MAN_TYPE, { row: 3 });
+  const expectedBase = DODGE_BASE_RENDER_SIZES["noodle-man"];
+
+  assert.equal(obstacle.width, expectedBase.width * DODGE_OBSTACLE_RENDER_SCALE);
+  assert.equal(obstacle.height, expectedBase.height * DODGE_OBSTACLE_RENDER_SCALE);
+  assertAlmostEqual(
+    obstacle.collisionWidth,
+    expectedBase.width * (NOODLE_MAN_TYPE.alpha.width / NOODLE_MAN_TYPE.source.width) * DODGE_OBSTACLE_RENDER_SCALE
+  );
+  assertAlmostEqual(
+    obstacle.collisionHeight,
+    expectedBase.height * (NOODLE_MAN_TYPE.alpha.height / NOODLE_MAN_TYPE.source.height) * DODGE_OBSTACLE_RENDER_SCALE
+  );
+  assert.equal(obstacle.hitboxScaleX, 0.58);
+  assert.equal(obstacle.hitboxScaleY, 0.58);
+});
+
 test("each dodge obstacle preserves its configured source aspect ratio", () => {
   const expectedAspects = new Map([
     ["head", 1448 / 1086],
@@ -699,6 +781,21 @@ test("an individual submerged head is counted as dodged only once", () => {
   assert.equal(manager.update(0.1, 12, 300), 1);
   assert.equal(manager.activeEvent, null);
   assert.equal(manager.update(0.1, 12, 300), 0);
+});
+
+test("a submerged noodle-man dodge is scored exactly once", () => {
+  const manager = new ObstacleManager();
+  manager.activeEvent = createObstacleEvent({
+    surferY: 300,
+    elapsed: 0,
+    pattern: PATTERN_BY_ID["stage2-sweeping-staircase"],
+    difficultyStage: 2
+  });
+  manager.activeEvent.heads[0].x = CONFIG.OBSTACLE_SUBMERGE_END_X + 1;
+
+  assert.equal(manager.update(0.1, 130, 300, { difficultyStage: 2 }), 1);
+  assert.equal(manager.activeEvent, null);
+  assert.equal(manager.update(0.1, 131, 300, { difficultyStage: 2 }), 0);
 });
 
 test("a fully submerged head is no longer collision-active", () => {
@@ -841,6 +938,29 @@ function sampleScheduledEvents() {
     });
   }
   return events;
+}
+
+function sampleStageEvents(stage, count) {
+  const scheduler = new DeterministicObstacleScheduler();
+  const events = [];
+  for (let i = 0; i < count; i += 1) {
+    const event = scheduler.nextEvent({
+      difficultyStage: stage,
+      surferY: 300,
+      activeHeads: []
+    });
+    events.push({
+      patternId: event.patternId,
+      heads: event.heads.map((head) => [head.obstacleTypeId, head.assetKey, head.row, head.timeOffset])
+    });
+  }
+  return events;
+}
+
+function resolveActiveEvent(manager) {
+  for (const head of manager.activeEvent.heads) {
+    head.x = CONFIG.OBSTACLE_SUBMERGE_END_X + 1;
+  }
 }
 
 function createBlockingSpawnColumn() {

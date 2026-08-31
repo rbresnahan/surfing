@@ -1,7 +1,20 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { access, readdir } from "node:fs/promises";
 import { DODGE_OBSTACLE_TYPES } from "../src/dodgeObstacles.js";
-import { loadAssets, WAVE_FRAME_FILES } from "../src/assets.js";
+import { loadAssets, THROWABLE_FILES, WAVE_FRAME_FILES } from "../src/assets.js";
+
+test("noodle-man dodge asset resolves with exact filename and case", async () => {
+  const assetDir = new URL("../assets/", import.meta.url);
+  const entries = await readdir(assetDir);
+  const noodleMan = DODGE_OBSTACLE_TYPES.find((type) => type.id === "noodle-man");
+
+  assert.equal(noodleMan.assetKey, "dodge-noodle-man");
+  assert.equal(noodleMan.file, "dodge-noodle-man.png");
+  assert.equal(entries.includes("dodge-noodle-man.png"), true);
+  assert.equal(entries.includes("Dodge-Noodle-Man.png"), false);
+  await access(new URL("../assets/dodge-noodle-man.png", import.meta.url));
+});
 
 test("asset loader loads registered dodge obstacles", async () => {
   const originalImage = globalThis.Image;
@@ -37,6 +50,30 @@ test("asset loader loads registered dodge obstacles", async () => {
     assert.equal(loadedSources.includes(["assets/", "head", ".png"].join("")), false);
     assert.equal(loadedSources.includes(["assets/", "dodge", "-tube", ".png"].join("")), false);
     assert.equal(loadedSources.includes("assets/head-test.png"), false);
+  } finally {
+    globalThis.Image = originalImage;
+    globalThis.Audio = originalAudio;
+  }
+});
+
+test("asset loader preloads noodle-man from the dodge registry", async () => {
+  const originalImage = globalThis.Image;
+  const originalAudio = globalThis.Audio;
+  const loadedSources = [];
+
+  globalThis.Image = class MockImage {
+    set src(value) {
+      loadedSources.push(value);
+      queueMicrotask(() => this.onload?.());
+    }
+  };
+  globalThis.Audio = undefined;
+
+  try {
+    const assets = await loadAssets();
+
+    assert.ok(assets.dodgeObstacles["dodge-noodle-man"]);
+    assert.equal(loadedSources.filter((src) => src === "assets/dodge-noodle-man.png").length, 1);
   } finally {
     globalThis.Image = originalImage;
     globalThis.Audio = originalAudio;
@@ -165,4 +202,9 @@ test("asset loader preloads both music tracks", async () => {
     globalThis.Image = originalImage;
     globalThis.Audio = originalAudio;
   }
+});
+
+test("rowboat throwable assets do not use a normal dodge swimmer", () => {
+  assert.equal(Object.values(THROWABLE_FILES).includes("dodge-noodle-man.png"), false);
+  assert.equal(Object.keys(THROWABLE_FILES).includes("dodge-noodle-man"), false);
 });

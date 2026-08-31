@@ -57,34 +57,23 @@ export const OBSTACLE_PATTERNS = [
   ], "legacy diagonal route"),
 
   pattern("stage2-staggered-diagonal", 2, [
-    ...rowsForOpening([0, 1]).map((row, index) => hit(row, 0, typeAt(index))),
-    ...rowsForOpening([1, 2]).map((row, index) => hit(row, 1.45, typeAt(index + 2))),
-    ...rowsForOpening([2, 3]).map((row, index) => hit(row, 2.9, typeAt(index + 4)))
-  ], "staggered diagonal route"),
+    hit(1, 0, "head"),
+    hit(4, 0, "tube-woman")
+  ], "wide separated stage-two pair"),
   pattern("stage2-sweeping-staircase", 2, [
-    hit(5, 0, "head"),
-    hit(3, 1.15, "noodle-man"),
-    hit(1, 2.3, "tube-woman")
-  ], "sweeping staircase"),
+    hit(3, 0, "noodle-man")
+  ], "single noodle swimmer stage-two reset"),
   pattern("stage2-split-clusters", 2, [
-    hit(0, 0, "head"),
     hit(1, 0, "noodle-girl"),
-    hit(4, 0, "tube-girl"),
-    hit(5, 0, "tube-woman"),
-    hit(2, 1.35, "scuba-man")
-  ], "split clusters with delayed blocker"),
+    hit(4, 1.45, "tube-woman")
+  ], "high-to-low stage-two transition"),
   pattern("stage2-dense-gate", 2, [
-    ...rowsForOpening([2, 3]).map((row, index) => hit(row, 0, typeAt(index))),
-    hit(2, 1.45, "head"),
-    hit(3, 2.9, "tube-girl")
-  ], "denser gate transition"),
+    hit(4, 0, "tube-girl"),
+    hit(1, 1.45, "scuba-man")
+  ], "low-to-high stage-two transition"),
   pattern("stage2-long-weave", 2, [
-    hit(0, 0, "head"),
-    hit(2, 1.05, "noodle-girl"),
-    hit(4, 2.1, "noodle-man"),
-    hit(3, 3.15, "tube-girl"),
-    hit(1, 4.2, "tube-woman")
-  ], "long readable weave"),
+    hit(2, 0, "scuba-man")
+  ], "single scuba swimmer reset"),
   pattern("sweeping-staircase", 2, [
     hit(5, 0, "head"),
     hit(3, 1.5, "noodle-man"),

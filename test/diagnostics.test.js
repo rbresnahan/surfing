@@ -551,7 +551,7 @@ function validRunEvents() {
 function gameOverEvent(diagnostics) {
   return {
     schemaVersion: "surf-run-diagnostics-v1",
-    gameVersion: "v0.4.0",
+    gameVersion: "v0.4.1",
     runId: diagnostics.runId,
     sequence: diagnostics.sequence + 1,
     elapsedSeconds: 1,
@@ -568,7 +568,7 @@ function gameOverEvent(diagnostics) {
 function diagnosticEvent(sequence, type, payload = {}) {
   return {
     schemaVersion: "surf-run-diagnostics-v1",
-    gameVersion: "v0.4.0",
+    gameVersion: "v0.4.1",
     runId: "run-test",
     sequence,
     elapsedSeconds: sequence / 10,

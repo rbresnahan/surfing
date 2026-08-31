@@ -378,6 +378,7 @@ export class ObstacleManager {
         objectType: "normal-obstacle",
         owner: "normal-spawn",
         source: "normal-spawn",
+        assetKey: head.assetKey,
         row: head.row,
         y: head.y,
         patternId: head.patternId ?? event.patternId
@@ -395,6 +396,7 @@ export class ObstacleManager {
       owner: payload.owner ?? object.diagnosticsOwner ?? object.source ?? null,
       row: object.row,
       source: object.source ?? null,
+      assetKey: object.assetKey ?? null,
       reason: payload.reason ?? null
     });
   }

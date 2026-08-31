@@ -28,8 +28,11 @@ export class Surfer {
 
   clamp() {
     const bounds = CONFIG.SURF_BOUNDS;
-    this.x = Math.max(bounds.left, Math.min(bounds.right, this.x));
-    this.y = Math.max(bounds.top, Math.min(bounds.bottom, this.y));
+    const halfWidth = CONFIG.SURFER_DISPLAY_WIDTH / 2;
+    const halfHeight = CONFIG.SURFER_DISPLAY_HEIGHT / 2;
+
+    this.x = Math.max(bounds.left + halfWidth, Math.min(bounds.right - halfWidth, this.x));
+    this.y = Math.max(bounds.top + halfHeight, Math.min(bounds.bottom - halfHeight, this.y));
   }
 
   draw(ctx, assets, crashed = false) {
@@ -58,9 +61,9 @@ export class Surfer {
   }
 
   drawBox(assets) {
-    const frame = assets.surferFrame ?? assets.surferStates.right ?? assets.surfer;
-    const height = CONFIG.SURFER_DISPLAY_HEIGHT;
-    const width = frame.width * (height / frame.height);
-    return { width, height };
+    return {
+      width: CONFIG.SURFER_DISPLAY_WIDTH,
+      height: CONFIG.SURFER_DISPLAY_HEIGHT
+    };
   }
 }
