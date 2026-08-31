@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { CONFIG } from "../src/config.js";
-import { Surfer } from "../src/surfer.js";
+import { getSurferTopBoundaryAtX, Surfer } from "../src/surfer.js";
 
 test("surfer begins with the idle sprite state", () => {
   const surfer = new Surfer();
@@ -97,10 +97,11 @@ test("repeated right movement keeps the surfer footprint inside the playable bou
 
 test("repeated upward movement keeps the surfer footprint inside the playable boundary", () => {
   const surfer = new Surfer();
+  surfer.x = CONFIG.SURF_BOUNDS.right - CONFIG.SURFER_DISPLAY_WIDTH / 2;
 
   moveRepeatedly(surfer, 0, -1);
 
-  assert.equal(visibleBox(surfer).y, CONFIG.SURF_BOUNDS.top);
+  assert.equal(visibleBox(surfer).y, CONFIG.SURFER_TOP_BOUNDARY.horizontalY);
 });
 
 test("repeated downward movement keeps the surfer footprint inside the playable boundary", () => {
@@ -119,7 +120,78 @@ test("diagonal movement into a corner clamps the surfer footprint on both axes",
 
   const box = visibleBox(surfer);
   assert.equal(box.x, CONFIG.SURF_BOUNDS.left);
-  assert.equal(box.y, CONFIG.SURF_BOUNDS.top);
+  assert.equal(box.y, CONFIG.SURFER_TOP_BOUNDARY.diagonalStartY);
+});
+
+test("top surfer boundary starts at the configured diagonal beginning", () => {
+  assert.equal(
+    getSurferTopBoundaryAtX(CONFIG.SURFER_TOP_BOUNDARY.diagonalStartX),
+    CONFIG.SURFER_TOP_BOUNDARY.diagonalStartY
+  );
+});
+
+test("top surfer boundary interpolates across the diagonal", () => {
+  const boundary = CONFIG.SURFER_TOP_BOUNDARY;
+  const midpointX = midpoint(boundary.diagonalStartX, boundary.diagonalEndX);
+  const midpointY = midpoint(boundary.diagonalStartY, boundary.horizontalY);
+
+  assert.equal(getSurferTopBoundaryAtX(midpointX), midpointY);
+});
+
+test("top surfer boundary reaches the horizontal limit at the diagonal endpoint", () => {
+  assert.equal(
+    getSurferTopBoundaryAtX(CONFIG.SURFER_TOP_BOUNDARY.diagonalEndX),
+    CONFIG.SURFER_TOP_BOUNDARY.horizontalY
+  );
+});
+
+test("top surfer boundary remains horizontal after the diagonal endpoint", () => {
+  assert.equal(
+    getSurferTopBoundaryAtX(CONFIG.SURFER_TOP_BOUNDARY.diagonalEndX + 90),
+    CONFIG.SURFER_TOP_BOUNDARY.horizontalY
+  );
+});
+
+test("surfer cannot cross the diagonal top boundary", () => {
+  const surfer = new Surfer();
+  const boundary = CONFIG.SURFER_TOP_BOUNDARY;
+  const halfWidth = CONFIG.SURFER_DISPLAY_WIDTH / 2;
+  const footprintLeftX = midpoint(boundary.diagonalStartX, boundary.diagonalEndX);
+  surfer.x = footprintLeftX + halfWidth;
+
+  moveRepeatedly(surfer, 0, -1);
+
+  assert.equal(visibleBox(surfer).y, getSurferTopBoundaryAtX(footprintLeftX));
+});
+
+test("surfer cannot enter the whitecap-side area above the horizontal boundary", () => {
+  const surfer = new Surfer();
+  surfer.x = CONFIG.SURFER_TOP_BOUNDARY.diagonalEndX + CONFIG.SURFER_DISPLAY_WIDTH / 2 + 40;
+
+  moveRepeatedly(surfer, 0, -1);
+
+  assert.equal(visibleBox(surfer).y, CONFIG.SURFER_TOP_BOUNDARY.horizontalY);
+});
+
+test("surfer footprint is used when clamping against the diagonal boundary", () => {
+  const surfer = new Surfer();
+  const boundary = CONFIG.SURFER_TOP_BOUNDARY;
+  const halfWidth = CONFIG.SURFER_DISPLAY_WIDTH / 2;
+  const centerXBoundary = getSurferTopBoundaryAtX(boundary.diagonalStartX + halfWidth);
+  surfer.x = boundary.diagonalStartX + halfWidth;
+
+  moveRepeatedly(surfer, 0, -1);
+
+  assert.equal(visibleBox(surfer).y, boundary.diagonalStartY);
+  assert.ok(visibleBox(surfer).y > centerXBoundary);
+});
+
+test("top surfer boundary is continuous where the diagonal meets the horizontal", () => {
+  const boundary = CONFIG.SURFER_TOP_BOUNDARY;
+  const justBeforeEndpoint = getSurferTopBoundaryAtX(boundary.diagonalEndX - 0.0001);
+
+  assert.equal(justBeforeEndpoint < boundary.diagonalStartY, true);
+  assert.ok(Math.abs(justBeforeEndpoint - getSurferTopBoundaryAtX(boundary.diagonalEndX)) < 0.001);
 });
 
 test("surfer movement away from boundaries is unchanged", () => {

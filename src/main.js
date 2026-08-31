@@ -1,4 +1,5 @@
 import { loadAssets } from "./assets.js";
+import { AntiCampManager } from "./antiCamp.js";
 import { createBackgroundMusicController } from "./audio.js";
 import { CONFIG, VERSION } from "./config.js";
 import { createDiagnosticsSink } from "./diagnostics.js";
@@ -25,6 +26,7 @@ const surfer = new Surfer();
 const diagnostics = createDiagnosticsSink();
 const obstacles = new ObstacleManager({ diagnostics });
 const encounters = createEncounterManager({ diagnostics });
+const antiCamp = new AntiCampManager({ diagnostics });
 let assets = null;
 let state = GameState.READY;
 let lastTime = performance.now();
@@ -76,10 +78,19 @@ function update(dt) {
     surfer.update(runDt, input);
     const gameState = buildEncounterGameState();
     encounters.update(runDt, gameState);
+    const normalSpawnsPaused = encounters.shouldPauseNormalSpawns();
     headsDodged += obstacles.update(runDt, survivalTime, surfer.y, {
-      pauseSpawns: encounters.shouldPauseNormalSpawns(),
+      pauseSpawns: normalSpawnsPaused,
       difficultyStage: encounters.difficultyStage,
-      pauseOwner: diagnostics.enabled && encounters.activeEncounter ? diagnostics.occurrenceId(encounters.activeEncounter) : null
+      pauseOwner: diagnostics.enabled && encounters.activeEncounter ? diagnostics.occurrenceId(encounters.activeEncounter) : null,
+      onNormalEventCompleted: () => {
+        if (!normalSpawnsPaused && encounters.activeEncounter === null) {
+          antiCamp.recordNormalObstaclePass(surfer, survivalTime);
+        }
+      }
+    });
+    antiCamp.update(runDt, survivalTime, surfer, {
+      suspended: normalSpawnsPaused || encounters.activeEncounter !== null
     });
     checkCollision();
   } else if (state === GameState.CRASHED) {
@@ -108,6 +119,7 @@ function startRun() {
   surfer.reset();
   obstacles.reset();
   encounters.reset();
+  antiCamp.reset(surfer, { elapsedSeconds: 0, reason: "start" });
   backgroundMusic.start();
 }
 
@@ -116,6 +128,8 @@ function crash() {
   finalScore = calculateScore(survivalTime, headsDodged);
   records = saveRecords({ survivalTime, headsDodged, score: finalScore, nonScoring: encounters.nonScoringDebugRun });
   obstacles.markCollided(survivalTime);
+  antiCamp.markCollided(survivalTime);
+  antiCamp.reset(surfer, { elapsedSeconds: survivalTime, reason: "crash" });
   encounters.cleanupActive(buildEncounterGameState());
   diagnostics.endRun({
     elapsedSeconds: survivalTime,
@@ -127,7 +141,7 @@ function crash() {
 
 function checkCollision() {
   const surferBox = surfer.hitbox(assets);
-  const hazardBoxes = [...obstacles.hitboxes(), ...encounters.hitboxes()];
+  const hazardBoxes = [...obstacles.hitboxes(), ...encounters.hitboxes(), ...antiCamp.hitboxes()];
   if (hazardBoxes.some((box) => rectsOverlap(surferBox, box))) {
     crash();
   }
@@ -148,6 +162,7 @@ function draw() {
   ctx.imageSmoothingEnabled = false;
   drawBackground();
   obstacles.draw(ctx, assets);
+  antiCamp.draw(ctx, assets);
   encounters.render(ctx, buildEncounterGameState());
   surfer.draw(ctx, assets, state === GameState.CRASHED);
 

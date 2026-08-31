@@ -161,10 +161,18 @@ export class ObstacleManager {
       updateEventThreat(event);
     }
 
-    completedNormalEvent = hadNormalEventsAtStart && this.activeEvents.some((event) => event.heads.every((head) => head.resolved));
+    const completedNormalEvents = hadNormalEventsAtStart
+      ? this.activeEvents.filter((event) => event.heads.every((head) => head.resolved))
+      : [];
+    completedNormalEvent = completedNormalEvents.length > 0;
     this.activeEvents = this.activeEvents.filter((event) => event.heads.some((head) => !head.resolved));
     if (completedNormalEvent) {
       this.spawnTimer = stageTuning(difficultyStage).spawnDelaySeconds;
+      for (const event of completedNormalEvents) {
+        if (!event.collided) {
+          options.onNormalEventCompleted?.(event);
+        }
+      }
     }
 
     if (!pauseSpawns) {

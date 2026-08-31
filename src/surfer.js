@@ -9,7 +9,8 @@ export class Surfer {
   reset() {
     const bounds = CONFIG.SURF_BOUNDS;
     this.x = bounds.left + (bounds.right - bounds.left) * 0.35;
-    this.y = bounds.top + (bounds.bottom - bounds.top) * 0.5;
+    const top = surferTopCenterBoundary(this.x);
+    this.y = top + (bounds.bottom - top) * 0.5;
     this.state = "idle";
     this.crashTime = 0;
   }
@@ -32,7 +33,7 @@ export class Surfer {
     const halfHeight = CONFIG.SURFER_DISPLAY_HEIGHT / 2;
 
     this.x = Math.max(bounds.left + halfWidth, Math.min(bounds.right - halfWidth, this.x));
-    this.y = Math.max(bounds.top + halfHeight, Math.min(bounds.bottom - halfHeight, this.y));
+    this.y = Math.max(surferTopCenterBoundary(this.x), Math.min(bounds.bottom - halfHeight, this.y));
   }
 
   draw(ctx, assets, crashed = false) {
@@ -66,4 +67,19 @@ export class Surfer {
       height: CONFIG.SURFER_DISPLAY_HEIGHT
     };
   }
+}
+
+export function getSurferTopBoundaryAtX(x) {
+  const boundary = CONFIG.SURFER_TOP_BOUNDARY;
+  if (x <= boundary.diagonalStartX) return boundary.diagonalStartY;
+  if (x >= boundary.diagonalEndX) return boundary.horizontalY;
+
+  const progress = (x - boundary.diagonalStartX) / (boundary.diagonalEndX - boundary.diagonalStartX);
+  return boundary.diagonalStartY + (boundary.horizontalY - boundary.diagonalStartY) * progress;
+}
+
+function surferTopCenterBoundary(centerX) {
+  const halfWidth = CONFIG.SURFER_DISPLAY_WIDTH / 2;
+  const halfHeight = CONFIG.SURFER_DISPLAY_HEIGHT / 2;
+  return getSurferTopBoundaryAtX(centerX - halfWidth) + halfHeight;
 }

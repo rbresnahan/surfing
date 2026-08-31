@@ -40,6 +40,12 @@ export const AUDIO_FILES = {
   rowboatFinaleMusic: "cartridge-drift.mp3"
 };
 
+export const ATTACK_FISH_FILES = {
+  attackFishOrangeWater: "attack-fish-orange-water.png",
+  attackFishOrangeA: "attack-fish-orange-a.png",
+  attackFishOrangeB: "attack-fish-orange-b.png"
+};
+
 export const WAVE_FRAME_FILES = [
   "wave-01.png",
   "wave-02.png",
@@ -58,6 +64,7 @@ export async function loadAssets() {
     angryFishermanCooler,
     angryFishermanCoolerDump,
     throwables,
+    attackFish,
     backgroundMusic,
     rowboatFinaleMusic
   ] = await Promise.all([
@@ -70,6 +77,7 @@ export async function loadAssets() {
     loadRequiredImage(`${ASSET_BASE}${FISHERMAN_FILES.angryFishermanCooler}`),
     loadRequiredImage(`${ASSET_BASE}${FISHERMAN_FILES.angryFishermanCoolerDump}`),
     loadThrowables(),
+    loadAttackFish(),
     loadAudio(`${AUDIO_BASE}${AUDIO_FILES.backgroundMusic}`),
     loadAudio(`${AUDIO_BASE}${AUDIO_FILES.rowboatFinaleMusic}`)
   ]);
@@ -84,6 +92,7 @@ export async function loadAssets() {
     angryFishermanCooler,
     angryFishermanCoolerDump,
     throwables,
+    attackFish,
     backgroundMusic,
     rowboatFinaleMusic,
     surferStates,
@@ -123,6 +132,17 @@ async function loadSurferStates() {
 async function loadThrowables() {
   const entries = await Promise.all(
     Object.entries(THROWABLE_FILES).map(async ([key, file]) => [
+      key,
+      await loadRequiredImage(`${ASSET_BASE}${file}`)
+    ])
+  );
+
+  return Object.fromEntries(entries);
+}
+
+async function loadAttackFish() {
+  const entries = await Promise.all(
+    Object.entries(ATTACK_FISH_FILES).map(async ([key, file]) => [
       key,
       await loadRequiredImage(`${ASSET_BASE}${file}`)
     ])

@@ -203,6 +203,9 @@ export function diagnosticsConfigSnapshot(config = CONFIG) {
     firstEncounterTimeMs: config.FIRST_ENCOUNTER_TIME_MS,
     coolerEncounterTimeMs: config.COOLER_ENCOUNTER_TIME_MS,
     postEncounterGraceSeconds: config.COOLER_POST_ENCOUNTER_GRACE_SECONDS,
+    antiCampPassivePassThreshold: config.ANTI_CAMP_PASSIVE_PASS_THRESHOLD,
+    antiCampMovementThreshold: config.ANTI_CAMP_MOVEMENT_THRESHOLD,
+    antiCampTelegraphSeconds: config.ANTI_CAMP_TELEGRAPH_SECONDS,
     scoreDodgeValue: config.SCORE_DODGE_VALUE,
     scoreTimeMultiplier: config.SCORE_TIME_MULTIPLIER,
     encounterSequence: config.ENCOUNTER_SEQUENCE
