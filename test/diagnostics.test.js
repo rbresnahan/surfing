@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { CONFIG } from "../src/config.js";
 import {
   DiagnosticsSink,
@@ -342,6 +343,36 @@ test("unobservable cleanup details are reported as not observed", () => {
     "not_observed"
   );
   assert.match(report.text, /not observed/);
+});
+
+test("debug-triggered diagnostics identify non-scoring developer runs", () => {
+  const events = validRunEvents();
+  events.splice(2, 0, diagnosticEvent(2.5, "encounter.debug_trigger_accepted", {
+    encounterType: "repeat"
+  }));
+  events[events.length - 1] = diagnosticEvent(11, "game.over", {
+    finalScore: 500,
+    headsDodged: 1,
+    survivalTime: 5,
+    nonScoringDebugRun: true
+  });
+
+  const report = createDiagnosticsReport(events);
+
+  assert.equal(report.summary.nonScoringDebugRun, true);
+  assert.match(report.text, /Non-scoring debug run: yes/);
+});
+
+test("diagnostics launcher and encounter controls are developer guarded", async () => {
+  const main = await readFile(new URL("../src/main.js", import.meta.url), "utf8");
+  const windowScript = await readFile(new URL("../src/diagnosticsWindow.js", import.meta.url), "utf8");
+  const html = await readFile(new URL("../diagnostics.html", import.meta.url), "utf8");
+
+  assert.equal(CONFIG.DEVELOPER_CONTROLS, false);
+  assert.match(main, /function setupDiagnosticsControl\(\) \{\n  if \(!developerControlsEnabled\(\)\) return;/);
+  assert.match(main, /function setupDeveloperDiagnosticsCommands\(\) \{\n  if \(!developerControlsEnabled\(\)\) return;/);
+  assert.match(windowScript, /if \(!developerControlsEnabled\(CONFIG\)\) \{/);
+  assert.match(html, /id="encounter-controls"[^>]*hidden/);
 });
 
 function enabledDiagnostics() {

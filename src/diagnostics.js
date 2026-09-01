@@ -197,6 +197,7 @@ export function createDiagnosticsSink(options = {}) {
 
 export function diagnosticsConfigSnapshot(config = CONFIG) {
   return {
+    developerControls: config.DEVELOPER_CONTROLS,
     encountersEnabled: config.ENCOUNTERS_ENABLED,
     debugStartStage: config.DEBUG_START_STAGE,
     debugReducedSpeedMultiplier: config.DEBUG_REDUCED_SPEED_MULTIPLIER,
@@ -262,6 +263,7 @@ function summarizeEvents(events, droppedEventCount) {
   let activeCount = 0;
   let maxActiveEncounters = 0;
   let finalScore = null;
+  let nonScoringDebugRun = false;
   let runDuration = 0;
   let deterministicSeed = "not configured";
   let configuredEncounterOrder = [];
@@ -279,7 +281,11 @@ function summarizeEvents(events, droppedEventCount) {
       deterministicSeed = event.payload.deterministicSeed ?? "not configured";
       configuredEncounterOrder = (event.payload.encounterSequence ?? []).map((entry) => entry.id);
     }
-    if (event.type === "game.over") finalScore = event.payload.finalScore;
+    if (event.type === "game.over") {
+      finalScore = event.payload.finalScore;
+      nonScoringDebugRun = nonScoringDebugRun || event.payload.nonScoringDebugRun === true;
+    }
+    if (event.type === "encounter.debug_trigger_accepted") nonScoringDebugRun = true;
     if (event.type === "diagnostics.warning") warnings.push(event.payload.message);
     if (event.type === "diagnostics.error") errors.push(event.payload.message);
 
@@ -350,6 +356,7 @@ function summarizeEvents(events, droppedEventCount) {
   return {
     runDuration,
     finalScore,
+    nonScoringDebugRun,
     deterministicSeed,
     configuredEncounterOrder,
     scheduledCount,
@@ -417,6 +424,7 @@ function formatTextReport(metadata, config, summary, checks, result) {
     `Run ID: ${metadata.runId ?? "not captured"}`,
     `Run duration: ${summary.runDuration.toFixed(2)}s`,
     `Final score: ${summary.finalScore ?? "not captured"}`,
+    `Non-scoring debug run: ${summary.nonScoringDebugRun ? "yes" : "no"}`,
     `Deterministic seed: ${summary.deterministicSeed}`,
     `Configured encounter order: ${summary.configuredEncounterOrder.join(", ") || "none"}`,
     `Scheduled / activated / completed / incomplete: ${summary.scheduledCount} / ${summary.activatedCount} / ${summary.completedCount} / ${summary.incompleteCount}`,

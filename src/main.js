@@ -1,9 +1,9 @@
 import { loadAssets } from "./assets.js";
 import { AntiCampManager } from "./antiCamp.js";
 import { createBackgroundMusicController } from "./audio.js";
-import { CONFIG, VERSION } from "./config.js";
-import { createDiagnosticsSink } from "./diagnostics.js";
-import { createEncounterManager } from "./encounterRegistry.js";
+import { CONFIG, VERSION, developerControlsEnabled } from "./config.js";
+import { DIAGNOSTIC_CHANNEL_NAME, createDiagnosticsSink } from "./diagnostics.js";
+import { createEncounterManager, encounterCatalog } from "./encounterRegistry.js";
 import { Input } from "./input.js";
 import { ObstacleManager } from "./obstacles.js";
 import { rectsOverlap } from "./collision.js";
@@ -38,8 +38,10 @@ let waveFrameIndex = 0;
 let waveTimer = 0;
 let waveFrameSeconds = randomWaveFrameSeconds();
 let backgroundMusic = createBackgroundMusicController(null);
+let developerDiagnosticsChannel = null;
 
 setupDiagnosticsControl();
+setupDeveloperDiagnosticsCommands();
 setupDiagnosticsLifecycleHooks();
 
 loadAssets()
@@ -135,7 +137,8 @@ function crash() {
     elapsedSeconds: survivalTime,
     finalScore,
     headsDodged,
-    survivalTime
+    survivalTime,
+    nonScoringDebugRun: encounters.nonScoringDebugRun
   });
 }
 
@@ -195,6 +198,8 @@ function buildEncounterGameState() {
 }
 
 function setupDiagnosticsControl() {
+  if (!developerControlsEnabled()) return;
+
   const button = document.createElement("button");
   button.type = "button";
   button.className = "diagnostics-open";
@@ -206,8 +211,66 @@ function setupDiagnosticsControl() {
       // Opening is user-initiated; if the browser blocks it, gameplay continues.
     }
     diagnostics.enable(survivalTime);
+    postDeveloperDiagnosticsState("diagnostics-opened");
   });
   document.body.appendChild(button);
+}
+
+function setupDeveloperDiagnosticsCommands() {
+  if (!developerControlsEnabled()) return;
+
+  try {
+    developerDiagnosticsChannel = new BroadcastChannel(DIAGNOSTIC_CHANNEL_NAME);
+  } catch {
+    return;
+  }
+
+  developerDiagnosticsChannel.addEventListener("message", (message) => {
+    const data = message.data ?? {};
+    if (data.kind === "developer-diagnostics-ready") {
+      postDeveloperDiagnosticsState("ready");
+      return;
+    }
+    if (data.kind !== "developer-encounter-trigger") return;
+
+    const result = encounters.triggerDebugEncounter(data.encounterId, buildEncounterGameState(), {
+      developerControlsEnabled: developerControlsEnabled(),
+      gameRunning: state === GameState.RUNNING
+    });
+
+    if (result.ok) {
+      antiCamp.reset(surfer, { elapsedSeconds: survivalTime, reason: "debug-encounter-trigger" });
+    }
+
+    postDeveloperEncounterTriggerResult(data.requestId, result);
+  });
+}
+
+function postDeveloperDiagnosticsState(reason) {
+  postDeveloperMessage({
+    kind: "developer-diagnostics-state",
+    reason,
+    developerControlsEnabled: developerControlsEnabled(),
+    encounters: encounterCatalog()
+  });
+}
+
+function postDeveloperEncounterTriggerResult(requestId, result) {
+  postDeveloperMessage({
+    kind: "developer-encounter-trigger-result",
+    requestId,
+    ok: result.ok,
+    reason: result.reason,
+    encounterId: result.encounterId ?? null
+  });
+}
+
+function postDeveloperMessage(message) {
+  try {
+    developerDiagnosticsChannel?.postMessage?.(message);
+  } catch {
+    // Developer diagnostics commands must never affect gameplay.
+  }
 }
 
 function setupDiagnosticsLifecycleHooks() {

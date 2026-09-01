@@ -24,5 +24,33 @@ export function registerConfiguredEncounters(
 }
 
 export function createEncounterManager(options = {}) {
-  return registerConfiguredEncounters(new EncounterManager(options));
+  return registerConfiguredEncounters(new EncounterManager({
+    ...options,
+    debugEncounterFactory: (id) => createEncounterById(id)
+  }));
+}
+
+export function createEncounterById(id, factories = ENCOUNTER_FACTORIES) {
+  const createEncounter = factories[id];
+  return createEncounter ? createEncounter() : null;
+}
+
+export function encounterCatalog(
+  factories = ENCOUNTER_FACTORIES,
+  sequence = CONFIG.ENCOUNTER_SEQUENCE
+) {
+  return sequence
+    .filter((entry) => typeof factories[entry.id] === "function")
+    .map((entry) => ({
+      id: entry.id,
+      label: labelForEncounterId(entry.id)
+    }));
+}
+
+function labelForEncounterId(id) {
+  return id
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }

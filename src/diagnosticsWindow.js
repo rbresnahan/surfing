@@ -4,6 +4,7 @@ import {
   DIAGNOSTIC_SCHEMA_VERSION,
   createDiagnosticsReport
 } from "./diagnostics.js";
+import { CONFIG, developerControlsEnabled } from "./config.js";
 
 const events = [];
 let droppedEventCount = 0;
@@ -17,6 +18,10 @@ const eventList = document.querySelector("#diagnostic-events");
 const reportText = document.querySelector("#diagnostic-report");
 const copyButton = document.querySelector("#copy-report");
 const downloadButton = document.querySelector("#download-json");
+const encounterControls = document.querySelector("#encounter-controls");
+const encounterButtons = document.querySelector("#encounter-buttons");
+const encounterStatus = document.querySelector("#encounter-trigger-status");
+let diagnosticsChannel = null;
 
 copyButton.addEventListener("click", async () => {
   try {
@@ -39,15 +44,25 @@ downloadButton.addEventListener("click", () => {
 });
 
 try {
-  const channel = new BroadcastChannel(DIAGNOSTIC_CHANNEL_NAME);
-  channel.addEventListener("message", (message) => {
-    if (message.data?.kind !== "diagnostic-event") return;
-    receiveEvent(message.data.event);
+  diagnosticsChannel = new BroadcastChannel(DIAGNOSTIC_CHANNEL_NAME);
+  diagnosticsChannel.addEventListener("message", (message) => {
+    if (message.data?.kind === "diagnostic-event") {
+      receiveEvent(message.data.event);
+      return;
+    }
+    if (message.data?.kind === "developer-diagnostics-state") {
+      renderEncounterControls(message.data);
+      return;
+    }
+    if (message.data?.kind === "developer-encounter-trigger-result") {
+      renderTriggerResult(message.data);
+    }
   });
 } catch {
   summary.textContent = "BroadcastChannel is unavailable in this browser.";
 }
 
+setupEncounterControls();
 render();
 
 function receiveEvent(event) {
@@ -86,6 +101,69 @@ function render() {
   eventList.replaceChildren();
   for (const event of events.slice(-80).reverse()) {
     eventList.appendChild(listItem(`#${event.sequence} ${event.elapsedSeconds.toFixed(2)}s ${event.type}`));
+  }
+}
+
+function setupEncounterControls() {
+  if (!developerControlsEnabled(CONFIG)) {
+    encounterControls.hidden = true;
+    return;
+  }
+
+  encounterControls.hidden = false;
+  encounterStatus.textContent = "Waiting for game connection.";
+  postDeveloperMessage({ kind: "developer-diagnostics-ready" });
+}
+
+function renderEncounterControls(message) {
+  if (!message.developerControlsEnabled) {
+    encounterControls.hidden = true;
+    encounterButtons.replaceChildren();
+    encounterStatus.textContent = "Developer controls are disabled.";
+    return;
+  }
+
+  encounterControls.hidden = false;
+  encounterButtons.replaceChildren();
+  for (const encounter of message.encounters ?? []) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = `Trigger ${encounter.label}`;
+    button.addEventListener("click", () => {
+      const requestId = `trigger-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      encounterStatus.textContent = `Requesting ${encounter.label}.`;
+      postDeveloperMessage({
+        kind: "developer-encounter-trigger",
+        requestId,
+        encounterId: encounter.id
+      });
+    });
+    encounterButtons.appendChild(button);
+  }
+
+  if (encounterButtons.childElementCount === 0) {
+    encounterStatus.textContent = "No registered encounters available.";
+  } else {
+    encounterStatus.textContent = "Ready.";
+  }
+}
+
+function renderTriggerResult(message) {
+  const labels = {
+    accepted: "Encounter trigger accepted.",
+    "no-running-game": "No game is actively running.",
+    "active-encounter": "Another encounter is currently active.",
+    "unknown-encounter": "Encounter ID is unknown.",
+    "developer-controls-disabled": "Developer controls are disabled."
+  };
+  encounterStatus.textContent = labels[message.reason] ?? `Encounter trigger rejected: ${message.reason}.`;
+}
+
+function postDeveloperMessage(message) {
+  try {
+    diagnosticsChannel?.postMessage?.(message);
+  } catch {
+    encounterStatus.textContent = "Unable to send developer command.";
   }
 }
 

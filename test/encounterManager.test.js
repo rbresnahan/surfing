@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { CONFIG, encounterConfig } from "../src/config.js";
+import { DiagnosticsSink } from "../src/diagnostics.js";
 import { EncounterManager } from "../src/encounterManager.js";
-import { registerConfiguredEncounters } from "../src/encounterRegistry.js";
+import { createEncounterById, encounterCatalog, registerConfiguredEncounters } from "../src/encounterRegistry.js";
 
 test("manager starts an eligible encounter through the lifecycle contract", () => {
   const manager = new EncounterManager();
@@ -335,6 +336,187 @@ test("same inputs produce the same encounter sequence", () => {
 
   assert.deepEqual(runSequence(), runSequence());
 });
+
+test("developer trigger disabled rejects without changing normal scheduling", () => {
+  const scheduled = fakeEncounter({
+    id: "scheduled",
+    canStart: (state) => state.elapsedMs >= 10
+  });
+  const manager = new EncounterManager({
+    debugEncounterFactory: () => fakeEncounter({ id: "debug", canStart: () => true })
+  });
+  manager.register(scheduled);
+
+  const result = manager.triggerDebugEncounter("debug", gameStateAt(0), {
+    developerControlsEnabled: false,
+    gameRunning: true
+  });
+
+  assert.deepEqual(result, { ok: false, reason: "developer-controls-disabled" });
+  assert.equal(manager.activeEncounter, null);
+  assert.equal(manager.completedEncounterIds.size, 0);
+
+  manager.update(0.016, gameStateAt(10));
+
+  assert.equal(scheduled.started, 1);
+  assert.equal(manager.activeEncounter, scheduled);
+});
+
+test("developer trigger activates a registered encounter through the lifecycle path", () => {
+  const diagnostics = enabledDiagnostics();
+  diagnostics.startRun();
+  const debugEncounter = fakeEncounter({
+    id: "debug",
+    pauseNormalSpawns: true
+  });
+  const manager = new EncounterManager({
+    diagnostics,
+    debugEncounterFactory: (id) => id === "debug" ? debugEncounter : null
+  });
+
+  const result = manager.triggerDebugEncounter("debug", gameStateAt(1000), {
+    developerControlsEnabled: true,
+    gameRunning: true
+  });
+
+  assert.deepEqual(result, { ok: true, reason: "accepted", encounterId: "debug" });
+  assert.equal(debugEncounter.started, 1);
+  assert.equal(manager.activeEncounter, debugEncounter);
+  assert.equal(manager.shouldPauseNormalSpawns(), true);
+  assert.equal(diagnostics.events.some((event) => event.type === "encounter.debug_trigger_accepted"), true);
+  assert.equal(diagnostics.events.find((event) => event.type === "encounter.activated").payload.source, "debug");
+});
+
+test("developer trigger safely rejects unknown encounter ids", () => {
+  const manager = new EncounterManager({ debugEncounterFactory: () => null });
+
+  const result = manager.triggerDebugEncounter("missing", gameStateAt(1000), {
+    developerControlsEnabled: true,
+    gameRunning: true
+  });
+
+  assert.deepEqual(result, { ok: false, reason: "unknown-encounter" });
+  assert.equal(manager.activeEncounter, null);
+  assert.equal(manager.nonScoringDebugRun, false);
+});
+
+test("developer trigger rejects while another encounter is active", () => {
+  const first = fakeEncounter({ id: "first", canStart: () => true });
+  const manager = new EncounterManager({
+    debugEncounterFactory: () => fakeEncounter({ id: "second" })
+  });
+  manager.register(first);
+  manager.update(0.016, gameStateAt(10));
+
+  const result = manager.triggerDebugEncounter("second", gameStateAt(20), {
+    developerControlsEnabled: true,
+    gameRunning: true
+  });
+
+  assert.deepEqual(result, { ok: false, reason: "active-encounter" });
+  assert.equal(manager.activeEncounter, first);
+});
+
+test("developer trigger can repeat the same encounter without scheduled bookkeeping leakage", () => {
+  const instances = [];
+  const scheduled = fakeEncounter({
+    id: "repeat",
+    canStart: (state) => state.elapsedMs >= 1000
+  });
+  const manager = new EncounterManager({
+    debugEncounterFactory: (id) => {
+      const encounter = fakeEncounter({
+        id,
+        completeAfterUpdate: true,
+        pauseNormalSpawns: true,
+        postEncounterGraceSeconds: 0.05,
+        difficultyStageOnComplete: 1
+      });
+      instances.push(encounter);
+      return encounter;
+    }
+  });
+  manager.register(scheduled);
+
+  assert.equal(manager.triggerDebugEncounter("repeat", gameStateAt(10), {
+    developerControlsEnabled: true,
+    gameRunning: true
+  }).ok, true);
+  manager.update(0.016, gameStateAt(26));
+  assert.equal(manager.activeEncounter, null);
+  assert.equal(manager.completedEncounterIds.size, 0);
+  assert.equal(manager.startedMajorEncounter, false);
+  assert.equal(manager.shouldPauseNormalSpawns(), true);
+
+  assert.equal(manager.triggerDebugEncounter("repeat", gameStateAt(30), {
+    developerControlsEnabled: true,
+    gameRunning: true
+  }).ok, true);
+
+  assert.equal(instances.length, 2);
+  assert.notEqual(instances[0], instances[1]);
+  assert.equal(instances[1].started, 1);
+  assert.equal(manager.postEncounterGraceTimer, 0);
+  assert.equal(manager.completedEncounterIds.size, 0);
+
+  manager.update(0.016, gameStateAt(46));
+  manager.update(0.05, gameStateAt(96));
+  manager.update(0.016, gameStateAt(1000));
+  assert.equal(scheduled.started, 1);
+  assert.equal(manager.completedEncounterIds.size, 0);
+});
+
+test("developer trigger rejects when no game is running", () => {
+  const manager = new EncounterManager({
+    debugEncounterFactory: () => fakeEncounter({ id: "debug" })
+  });
+
+  const result = manager.triggerDebugEncounter("debug", gameStateAt(0), {
+    developerControlsEnabled: true,
+    gameRunning: false
+  });
+
+  assert.deepEqual(result, { ok: false, reason: "no-running-game" });
+  assert.equal(manager.activeEncounter, null);
+});
+
+test("developer trigger marks the run non-scoring while normal runs remain eligible", () => {
+  const manager = new EncounterManager({
+    debugEncounterFactory: () => fakeEncounter({ id: "debug" })
+  });
+
+  assert.equal(manager.nonScoringDebugRun, false);
+  manager.triggerDebugEncounter("debug", gameStateAt(0), {
+    developerControlsEnabled: true,
+    gameRunning: true
+  });
+  assert.equal(manager.nonScoringDebugRun, true);
+
+  const normalManager = new EncounterManager();
+  normalManager.update(0.016, gameStateAt(0));
+  assert.equal(normalManager.nonScoringDebugRun, false);
+});
+
+test("registered encounter catalog and factory are registry driven", () => {
+  const factories = {
+    "mock-third": () => fakeEncounter({ id: "mock-third" })
+  };
+  const sequence = [{ id: "mock-third", startTimeMs: 120000 }];
+
+  assert.deepEqual(encounterCatalog(factories, sequence), [
+    { id: "mock-third", label: "Mock Third" }
+  ]);
+  assert.equal(createEncounterById("mock-third", factories).id, "mock-third");
+  assert.equal(createEncounterById("unknown", factories), null);
+});
+
+function enabledDiagnostics() {
+  const diagnostics = new DiagnosticsSink({
+    channelFactory: () => ({ postMessage() {} })
+  });
+  diagnostics.enable();
+  return diagnostics;
+}
 
 function fakeEncounter(options = {}) {
   return {

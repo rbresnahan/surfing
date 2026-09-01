@@ -107,6 +107,35 @@ canvas {
   cursor: pointer;
 }
 
+.encounter-controls {
+  margin: 0 0 18px;
+  padding: 12px;
+  border: 1px solid rgba(244, 251, 255, 0.16);
+  border-radius: 4px;
+  background: #0c202a;
+}
+
+.encounter-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.encounter-buttons button {
+  padding: 8px 10px;
+  border: 1px solid rgba(244, 251, 255, 0.42);
+  border-radius: 4px;
+  color: #f4fbff;
+  background: #123645;
+  font: 13px "Courier New", Courier, monospace;
+  cursor: pointer;
+}
+
+.encounter-controls p {
+  margin: 10px 0 0;
+  color: #a9c4ce;
+}
+
 .diagnostics-status {
   display: flex;
   gap: 12px;

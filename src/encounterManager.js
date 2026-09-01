@@ -1,8 +1,9 @@
 import { CONFIG } from "./config.js";
 
 export class EncounterManager {
-  constructor({ diagnostics = null } = {}) {
+  constructor({ diagnostics = null, debugEncounterFactory = null } = {}) {
     this.diagnostics = diagnostics;
+    this.debugEncounterFactory = debugEncounterFactory;
     this.registeredEncounters = [];
     this.registrationKeys = new WeakMap();
     this.reset();
@@ -67,8 +68,43 @@ export class EncounterManager {
     const encounter = this.selectEncounter(gameState);
     if (!encounter) return;
 
+    this.activateEncounter(encounter, gameState, { source: "scheduled" });
+  }
+
+  triggerDebugEncounter(encounterId, gameState, {
+    developerControlsEnabled = false,
+    gameRunning = false
+  } = {}) {
+    const reject = (reason) => {
+      this.diagnostics?.emit("encounter.debug_trigger_rejected", {
+        elapsedSeconds: gameState?.elapsedSeconds ?? this.lastElapsedSeconds ?? 0,
+        encounterType: encounterId ?? null,
+        reason
+      });
+      return { ok: false, reason };
+    };
+
+    if (!developerControlsEnabled) return reject("developer-controls-disabled");
+    if (!gameRunning) return reject("no-running-game");
+    if (this.activeEncounter) return reject("active-encounter");
+
+    const encounter = this.debugEncounterFactory?.(encounterId) ?? null;
+    if (!encounter) return reject("unknown-encounter");
+
+    this.postEncounterGraceTimer = 0;
+    this.lastGraceOwner = null;
+    this.nonScoringDebugRun = true;
+    this.diagnostics?.emit("encounter.debug_trigger_accepted", {
+      elapsedSeconds: gameState?.elapsedSeconds ?? this.lastElapsedSeconds ?? 0,
+      encounterType: encounter.id
+    });
+    this.activateEncounter(encounter, gameState, { source: "debug" });
+    return { ok: true, reason: "accepted", encounterId: encounter.id };
+  }
+
+  activateEncounter(encounter, gameState, { source = "scheduled" } = {}) {
     this.activeEncounter = encounter;
-    if (encounter.type === "major") {
+    if (source === "scheduled" && encounter.type === "major") {
       this.startedMajorEncounter = true;
     }
     const occurrenceId = this.diagnostics?.occurrenceId(encounter);
@@ -83,7 +119,8 @@ export class EncounterManager {
       occurrenceId,
       encounterType: encounter.id,
       owner: occurrenceId,
-      phase: encounterPhase(encounter)
+      phase: encounterPhase(encounter),
+      source
     });
     this.recordPhaseIfChanged(encounter, gameState.elapsedSeconds ?? 0, true);
   }
@@ -124,7 +161,9 @@ export class EncounterManager {
 
   completeActiveEncounter(gameState) {
     const encounter = this.activeEncounter;
-    this.completedEncounterIds.add(this.registrationKey(encounter));
+    if (this.registrationKeys.has(encounter)) {
+      this.completedEncounterIds.add(this.registrationKey(encounter));
+    }
     const occurrenceId = this.diagnostics?.occurrenceId(encounter);
     this.diagnostics?.emit("encounter.completed", {
       elapsedSeconds: gameState.elapsedSeconds ?? 0,

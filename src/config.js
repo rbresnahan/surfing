@@ -1,10 +1,11 @@
-export const VERSION = "v0.5.1";
+export const VERSION = "v0.5.2";
 
 const SURFER_DISPLAY_HEIGHT = 140;
 const SURFER_DISPLAY_WIDTH = 1199 * (SURFER_DISPLAY_HEIGHT / 1312);
 
 export const CONFIG = {
   DEBUG: false,
+  DEVELOPER_CONTROLS: true,
   DEBUG_START_STAGE: null,
   DEBUG_REDUCED_SPEED_MULTIPLIER: 1,
   WIDTH: 1024,
@@ -116,7 +117,7 @@ export const CONFIG = {
   WIPEOUT_SECONDS: 1,
   SCORE_TIME_MULTIPLIER: 100,
   SCORE_DODGE_VALUE: 500,
-  STORAGE_KEY: "surf-game-v0.5.1-records"
+  STORAGE_KEY: "surf-game-v0.5.2-records"
 };
 
 CONFIG.ENCOUNTER_SEQUENCE = [
@@ -135,4 +136,8 @@ CONFIG.ENCOUNTER_SEQUENCE = [
 
 export function encounterConfig(id) {
   return CONFIG.ENCOUNTER_SEQUENCE.find((encounter) => encounter.id === id) ?? null;
+}
+
+export function developerControlsEnabled(config = CONFIG) {
+  return config.DEVELOPER_CONTROLS === true;
 }
