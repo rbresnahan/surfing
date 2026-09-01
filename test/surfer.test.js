@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { CONFIG } from "../src/config.js";
-import { getSurferTopBoundaryAtX, Surfer } from "../src/surfer.js";
+import { clampSurferCenterToPlayfield, getSurferBoundaryYAtX, surferPlayfieldPolygon, Surfer } from "../src/surfer.js";
 
 test("surfer begins with the idle sprite state", () => {
   const surfer = new Surfer();
@@ -83,7 +83,8 @@ test("repeated left movement keeps the surfer footprint inside the playable boun
 
   moveRepeatedly(surfer, -1, 0);
 
-  assert.equal(visibleBox(surfer).x, CONFIG.SURF_BOUNDS.left);
+  assertVisibleBoxInsideSurferPlayfield(visibleBox(surfer));
+  assert.ok(visibleBox(surfer).x > CONFIG.SURFER_PLAYFIELD_BOUNDARY[0].x);
 });
 
 test("repeated right movement keeps the surfer footprint inside the playable boundary", () => {
@@ -101,7 +102,10 @@ test("repeated upward movement keeps the surfer footprint inside the playable bo
 
   moveRepeatedly(surfer, 0, -1);
 
-  assert.equal(visibleBox(surfer).y, CONFIG.SURFER_TOP_BOUNDARY.horizontalY);
+  const box = visibleBox(surfer);
+  assertVisibleBoxInsideSurferPlayfield(box);
+  assert.equal(box.x + box.width, CONFIG.SURF_BOUNDS.right);
+  assert.ok(box.y > CONFIG.SURFER_PLAYFIELD_BOUNDARY.at(-1).y);
 });
 
 test("repeated downward movement keeps the surfer footprint inside the playable boundary", () => {
@@ -119,79 +123,108 @@ test("diagonal movement into a corner clamps the surfer footprint on both axes",
   moveRepeatedly(surfer, -1, -1);
 
   const box = visibleBox(surfer);
-  assert.equal(box.x, CONFIG.SURF_BOUNDS.left);
-  assert.equal(box.y, CONFIG.SURFER_TOP_BOUNDARY.diagonalStartY);
+  assertVisibleBoxInsideSurferPlayfield(box);
+  assert.equal(minSurferPlayfieldMargin(box) < 0.001, true);
 });
 
-test("top surfer boundary starts at the configured diagonal beginning", () => {
-  assert.equal(
-    getSurferTopBoundaryAtX(CONFIG.SURFER_TOP_BOUNDARY.diagonalStartX),
-    CONFIG.SURFER_TOP_BOUNDARY.diagonalStartY
-  );
+test("surfer playfield uses the configured upper-left boundary anchors", () => {
+  assert.equal(CONFIG.SURFER_TOP_BOUNDARY, undefined);
+  assert.deepEqual(CONFIG.SURFER_PLAYFIELD_BOUNDARY, [
+    { x: 160, y: 500 },
+    { x: 180, y: 307 },
+    { x: 292, y: 217 },
+    { x: 401, y: 128 },
+    { x: 588, y: 128 },
+    { x: 650, y: 116 }
+  ]);
 });
 
-test("top surfer boundary interpolates across the diagonal", () => {
-  const boundary = CONFIG.SURFER_TOP_BOUNDARY;
-  const midpointX = midpoint(boundary.diagonalStartX, boundary.diagonalEndX);
-  const midpointY = midpoint(boundary.diagonalStartY, boundary.horizontalY);
+test("surfer playfield polygon closes against the existing right and bottom limits", () => {
+  const polygon = surferPlayfieldPolygon();
 
-  assert.equal(getSurferTopBoundaryAtX(midpointX), midpointY);
+  assert.deepEqual(polygon[0], CONFIG.SURFER_PLAYFIELD_BOUNDARY[0]);
+  assert.deepEqual(polygon.at(-1), { x: CONFIG.SURF_BOUNDS.right, y: CONFIG.SURF_BOUNDS.bottom });
 });
 
-test("top surfer boundary reaches the horizontal limit at the diagonal endpoint", () => {
-  assert.equal(
-    getSurferTopBoundaryAtX(CONFIG.SURFER_TOP_BOUNDARY.diagonalEndX),
-    CONFIG.SURFER_TOP_BOUNDARY.horizontalY
-  );
+test("surfer boundary interpolates along the main diagonal", () => {
+  const start = CONFIG.SURFER_PLAYFIELD_BOUNDARY[2];
+  const end = CONFIG.SURFER_PLAYFIELD_BOUNDARY[3];
+  const midpointX = midpoint(start.x, end.x);
+  const midpointY = midpoint(start.y, end.y);
+
+  assert.equal(getSurferBoundaryYAtX(midpointX), midpointY);
 });
 
-test("top surfer boundary remains horizontal after the diagonal endpoint", () => {
-  assert.equal(
-    getSurferTopBoundaryAtX(CONFIG.SURFER_TOP_BOUNDARY.diagonalEndX + 90),
-    CONFIG.SURFER_TOP_BOUNDARY.horizontalY
-  );
+test("surfer boundary keeps the authored horizontal section", () => {
+  assert.equal(getSurferBoundaryYAtX(midpoint(401, 588)), 128);
+});
+
+test("surfer boundary rises slightly at the right edge", () => {
+  assert.equal(getSurferBoundaryYAtX(650), 116);
 });
 
 test("surfer cannot cross the diagonal top boundary", () => {
   const surfer = new Surfer();
-  const boundary = CONFIG.SURFER_TOP_BOUNDARY;
+  const boundary = CONFIG.SURFER_PLAYFIELD_BOUNDARY;
   const halfWidth = CONFIG.SURFER_DISPLAY_WIDTH / 2;
-  const footprintLeftX = midpoint(boundary.diagonalStartX, boundary.diagonalEndX);
+  const footprintLeftX = midpoint(boundary[2].x, boundary[3].x);
   surfer.x = footprintLeftX + halfWidth;
 
   moveRepeatedly(surfer, 0, -1);
 
-  assert.equal(visibleBox(surfer).y, getSurferTopBoundaryAtX(footprintLeftX));
+  assert.ok(visibleBox(surfer).x > footprintLeftX);
+  assertVisibleBoxInsideSurferPlayfield(visibleBox(surfer));
 });
 
-test("surfer cannot enter the whitecap-side area above the horizontal boundary", () => {
+test("surfer cannot enter the whitecap-side area above the upper boundary", () => {
   const surfer = new Surfer();
-  surfer.x = CONFIG.SURFER_TOP_BOUNDARY.diagonalEndX + CONFIG.SURFER_DISPLAY_WIDTH / 2 + 40;
+  surfer.x = 500 + CONFIG.SURFER_DISPLAY_WIDTH / 2;
 
   moveRepeatedly(surfer, 0, -1);
 
-  assert.equal(visibleBox(surfer).y, CONFIG.SURFER_TOP_BOUNDARY.horizontalY);
+  assert.ok(visibleBox(surfer).y > 128);
+  assertVisibleBoxInsideSurferPlayfield(visibleBox(surfer));
 });
 
-test("surfer footprint is used when clamping against the diagonal boundary", () => {
-  const surfer = new Surfer();
-  const boundary = CONFIG.SURFER_TOP_BOUNDARY;
+test("surfer footprint is used when clamping against the near-vertical left boundary", () => {
+  const boundary = CONFIG.SURFER_PLAYFIELD_BOUNDARY;
+  const halfHeight = CONFIG.SURFER_DISPLAY_HEIGHT / 2;
   const halfWidth = CONFIG.SURFER_DISPLAY_WIDTH / 2;
-  const centerXBoundary = getSurferTopBoundaryAtX(boundary.diagonalStartX + halfWidth);
-  surfer.x = boundary.diagonalStartX + halfWidth;
+  const clamped = clampSurferCenterToPlayfield(boundary[0].x + halfWidth, boundary[0].y - halfHeight, {
+    width: CONFIG.SURFER_DISPLAY_WIDTH,
+    height: CONFIG.SURFER_DISPLAY_HEIGHT
+  });
+  const box = {
+    x: clamped.x - halfWidth,
+    y: clamped.y - halfHeight,
+    width: CONFIG.SURFER_DISPLAY_WIDTH,
+    height: CONFIG.SURFER_DISPLAY_HEIGHT
+  };
 
-  moveRepeatedly(surfer, 0, -1);
-
-  assert.equal(visibleBox(surfer).y, boundary.diagonalStartY);
-  assert.ok(visibleBox(surfer).y > centerXBoundary);
+  assertVisibleBoxInsideSurferPlayfield(box);
+  assert.ok(box.x > boundary[0].x);
 });
 
-test("top surfer boundary is continuous where the diagonal meets the horizontal", () => {
-  const boundary = CONFIG.SURFER_TOP_BOUNDARY;
-  const justBeforeEndpoint = getSurferTopBoundaryAtX(boundary.diagonalEndX - 0.0001);
+test("surfer boundary is continuous where the diagonal meets the horizontal", () => {
+  const boundary = CONFIG.SURFER_PLAYFIELD_BOUNDARY;
+  const justBeforeEndpoint = getSurferBoundaryYAtX(boundary[3].x - 0.0001);
 
-  assert.equal(justBeforeEndpoint < boundary.diagonalStartY, true);
-  assert.ok(Math.abs(justBeforeEndpoint - getSurferTopBoundaryAtX(boundary.diagonalEndX)) < 0.001);
+  assert.equal(justBeforeEndpoint < boundary[2].y, true);
+  assert.ok(Math.abs(justBeforeEndpoint - getSurferBoundaryYAtX(boundary[3].x)) < 0.001);
+});
+
+test("clamping projects an invalid center back into the polygonal playfield", () => {
+  const clamped = clampSurferCenterToPlayfield(120, 250, {
+    width: CONFIG.SURFER_DISPLAY_WIDTH,
+    height: CONFIG.SURFER_DISPLAY_HEIGHT
+  });
+
+  assertVisibleBoxInsideSurferPlayfield({
+    x: clamped.x - CONFIG.SURFER_DISPLAY_WIDTH / 2,
+    y: clamped.y - CONFIG.SURFER_DISPLAY_HEIGHT / 2,
+    width: CONFIG.SURFER_DISPLAY_WIDTH,
+    height: CONFIG.SURFER_DISPLAY_HEIGHT
+  });
 });
 
 test("surfer movement away from boundaries is unchanged", () => {
@@ -244,6 +277,39 @@ function visibleBox(surfer) {
     width: CONFIG.SURFER_DISPLAY_WIDTH,
     height: CONFIG.SURFER_DISPLAY_HEIGHT
   };
+}
+
+function assertVisibleBoxInsideSurferPlayfield(box) {
+  const margins = surferPlayfieldMargins(box);
+  assert.equal(margins.every((margin) => margin >= -0.001), true);
+}
+
+function minSurferPlayfieldMargin(box) {
+  return Math.min(...surferPlayfieldMargins(box));
+}
+
+function surferPlayfieldMargins(box) {
+  const polygon = surferPlayfieldPolygon();
+  const corners = [
+    { x: box.x, y: box.y },
+    { x: box.x + box.width, y: box.y },
+    { x: box.x + box.width, y: box.y + box.height },
+    { x: box.x, y: box.y + box.height }
+  ];
+  const margins = [];
+
+  for (let i = 0; i < polygon.length; i += 1) {
+    const a = polygon[i];
+    const b = polygon[(i + 1) % polygon.length];
+    const edgeX = b.x - a.x;
+    const edgeY = b.y - a.y;
+    const normalLength = Math.hypot(edgeX, edgeY);
+    for (const corner of corners) {
+      margins.push((edgeX * (corner.y - a.y) - edgeY * (corner.x - a.x)) / normalLength);
+    }
+  }
+
+  return margins;
 }
 
 function midpoint(a, b) {

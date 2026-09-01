@@ -9,10 +9,13 @@ export class Surfer {
   reset() {
     const bounds = CONFIG.SURF_BOUNDS;
     this.x = bounds.left + (bounds.right - bounds.left) * 0.35;
-    const top = surferTopCenterBoundary(this.x);
+    const halfWidth = CONFIG.SURFER_DISPLAY_WIDTH / 2;
+    const halfHeight = CONFIG.SURFER_DISPLAY_HEIGHT / 2;
+    const top = getSurferBoundaryYAtX(this.x - halfWidth) + halfHeight;
     this.y = top + (bounds.bottom - top) * 0.5;
     this.state = "idle";
     this.crashTime = 0;
+    this.clamp();
   }
 
   update(dt, input) {
@@ -28,12 +31,9 @@ export class Surfer {
   }
 
   clamp() {
-    const bounds = CONFIG.SURF_BOUNDS;
-    const halfWidth = CONFIG.SURFER_DISPLAY_WIDTH / 2;
-    const halfHeight = CONFIG.SURFER_DISPLAY_HEIGHT / 2;
-
-    this.x = Math.max(bounds.left + halfWidth, Math.min(bounds.right - halfWidth, this.x));
-    this.y = Math.max(surferTopCenterBoundary(this.x), Math.min(bounds.bottom - halfHeight, this.y));
+    const clamped = clampSurferCenterToPlayfield(this.x, this.y, this.drawBox());
+    this.x = clamped.x;
+    this.y = clamped.y;
   }
 
   draw(ctx, assets, crashed = false) {
@@ -69,17 +69,80 @@ export class Surfer {
   }
 }
 
-export function getSurferTopBoundaryAtX(x) {
-  const boundary = CONFIG.SURFER_TOP_BOUNDARY;
-  if (x <= boundary.diagonalStartX) return boundary.diagonalStartY;
-  if (x >= boundary.diagonalEndX) return boundary.horizontalY;
+export function surferPlayfieldPolygon(config = CONFIG) {
+  const boundary = config.SURFER_PLAYFIELD_BOUNDARY;
+  const first = boundary[0];
+  const last = boundary[boundary.length - 1];
+  const polygon = [...boundary];
 
-  const progress = (x - boundary.diagonalStartX) / (boundary.diagonalEndX - boundary.diagonalStartX);
-  return boundary.diagonalStartY + (boundary.horizontalY - boundary.diagonalStartY) * progress;
+  if (last.x !== config.SURF_BOUNDS.right || last.y !== config.SURF_BOUNDS.bottom) {
+    polygon.push({ x: config.SURF_BOUNDS.right, y: config.SURF_BOUNDS.bottom });
+  }
+
+  if (first.y !== config.SURF_BOUNDS.bottom) {
+    polygon.push({ x: first.x, y: config.SURF_BOUNDS.bottom });
+  }
+
+  return polygon;
 }
 
-function surferTopCenterBoundary(centerX) {
-  const halfWidth = CONFIG.SURFER_DISPLAY_WIDTH / 2;
-  const halfHeight = CONFIG.SURFER_DISPLAY_HEIGHT / 2;
-  return getSurferTopBoundaryAtX(centerX - halfWidth) + halfHeight;
+export function clampSurferCenterToPlayfield(centerX, centerY, box, config = CONFIG) {
+  let x = centerX;
+  let y = centerY;
+  const halfWidth = box.width / 2;
+  const halfHeight = box.height / 2;
+  const polygon = surferPlayfieldPolygon(config);
+
+  for (let pass = 0; pass < 8; pass += 1) {
+    let adjusted = false;
+
+    for (let i = 0; i < polygon.length; i += 1) {
+      const a = polygon[i];
+      const b = polygon[(i + 1) % polygon.length];
+      const edgeX = b.x - a.x;
+      const edgeY = b.y - a.y;
+      const normalX = -edgeY;
+      const normalY = edgeX;
+      const normalLengthSquared = normalX * normalX + normalY * normalY;
+
+      if (normalLengthSquared === 0) continue;
+
+      const required = Math.abs(normalX) * halfWidth + Math.abs(normalY) * halfHeight;
+      const actual = normalX * (x - a.x) + normalY * (y - a.y);
+      if (actual >= required - 0.000001) continue;
+
+      const correction = (required - actual) / normalLengthSquared;
+      x += normalX * correction;
+      y += normalY * correction;
+      adjusted = true;
+    }
+
+    if (!adjusted) break;
+  }
+
+  return {
+    x: normalizeZero(x),
+    y: normalizeZero(y)
+  };
+}
+
+export function getSurferBoundaryYAtX(x, config = CONFIG) {
+  const boundary = config.SURFER_PLAYFIELD_BOUNDARY;
+  for (let i = 0; i < boundary.length - 1; i += 1) {
+    const a = boundary[i];
+    const b = boundary[i + 1];
+    const minX = Math.min(a.x, b.x);
+    const maxX = Math.max(a.x, b.x);
+    if (x < minX || x > maxX) continue;
+    if (a.x === b.x) return Math.min(a.y, b.y);
+
+    const progress = (x - a.x) / (b.x - a.x);
+    return a.y + (b.y - a.y) * progress;
+  }
+
+  return boundary[boundary.length - 1].y;
+}
+
+function normalizeZero(value) {
+  return Math.abs(value) < 0.000001 ? 0 : value;
 }

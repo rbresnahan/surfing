@@ -8,7 +8,7 @@ import { Input } from "./input.js";
 import { ObstacleManager } from "./obstacles.js";
 import { rectsOverlap } from "./collision.js";
 import { calculateScore, formatTime, loadRecords, saveRecords } from "./scoring.js";
-import { Surfer } from "./surfer.js";
+import { Surfer, surferPlayfieldPolygon } from "./surfer.js";
 import { obstacleRows, obstacleRowSpacing } from "./rowGeometry.js";
 
 const canvas = document.querySelector("#game");
@@ -166,7 +166,7 @@ function draw() {
   encounters.render(ctx, buildEncounterGameState());
   surfer.draw(ctx, assets, state === GameState.CRASHED);
 
-  if (CONFIG.DEBUG || CONFIG.DEBUG_OBSTACLE_ROWS) {
+  if (CONFIG.DEBUG || CONFIG.DEBUG_OBSTACLE_ROWS || CONFIG.DEBUG_SURFER_BOUNDS) {
     drawDebug();
   }
 
@@ -293,18 +293,26 @@ function drawCrashOverlay() {
 function drawDebug() {
   ctx.save();
   const bounds = CONFIG.SURF_BOUNDS;
-  ctx.strokeStyle = "#fff04a";
-  ctx.lineWidth = 2;
-  ctx.strokeRect(bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top);
+  if (CONFIG.DEBUG || CONFIG.DEBUG_OBSTACLE_ROWS) {
+    ctx.strokeStyle = "#fff04a";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top);
+  }
 
   if (CONFIG.DEBUG_OBSTACLE_ROWS) {
     drawDebugRows();
   }
 
-  ctx.strokeStyle = "#ff4f8b";
-  const surferBox = surfer.hitbox(assets);
-  ctx.strokeRect(surferBox.x, surferBox.y, surferBox.width, surferBox.height);
-  drawDebugCenter(surfer.x, surfer.y, "#ff4f8b");
+  if (CONFIG.DEBUG_SURFER_BOUNDS) {
+    drawDebugSurferBounds();
+  }
+
+  if (CONFIG.DEBUG) {
+    ctx.strokeStyle = "#ff4f8b";
+    const surferBox = surfer.hitbox(assets);
+    ctx.strokeRect(surferBox.x, surferBox.y, surferBox.width, surferBox.height);
+    drawDebugCenter(surfer.x, surfer.y, "#ff4f8b");
+  }
 
   if (CONFIG.DEBUG_OBSTACLE_ROWS) {
     const footprint = obstacleRowSpacing() * 2;
@@ -312,19 +320,98 @@ function drawDebug() {
     ctx.strokeRect(bounds.left, surfer.y - footprint / 2, bounds.right - bounds.left, footprint);
   }
 
-  ctx.strokeStyle = "#3f1cff";
-  for (const box of obstacles.hitboxes()) {
-    ctx.strokeRect(box.x, box.y, box.width, box.height);
-  }
-  for (const center of obstacles.centers()) {
-    drawDebugCenter(center.x, center.y, "#3f1cff");
-    if (CONFIG.DEBUG_OBSTACLE_ROWS && Number.isInteger(center.row)) {
-      ctx.fillStyle = "#3f1cff";
-      ctx.font = "14px 'Courier New', monospace";
-      ctx.fillText(`r${center.row} ${center.patternId ?? ""}`, center.x + 8, center.y - 18);
+  if (CONFIG.DEBUG || CONFIG.DEBUG_OBSTACLE_ROWS) {
+    ctx.strokeStyle = "#3f1cff";
+    for (const box of obstacles.hitboxes()) {
+      ctx.strokeRect(box.x, box.y, box.width, box.height);
     }
+    for (const center of obstacles.centers()) {
+      drawDebugCenter(center.x, center.y, "#3f1cff");
+      if (CONFIG.DEBUG_OBSTACLE_ROWS && Number.isInteger(center.row)) {
+        ctx.fillStyle = "#3f1cff";
+        ctx.font = "14px 'Courier New', monospace";
+        ctx.fillText(`r${center.row} ${center.patternId ?? ""}`, center.x + 8, center.y - 18);
+      }
+    }
+    drawDebugSubmergeMarkers();
   }
-  drawDebugSubmergeMarkers();
+  ctx.restore();
+}
+
+function drawDebugSurferBounds() {
+  const boundary = CONFIG.SURFER_PLAYFIELD_BOUNDARY;
+  const bounds = CONFIG.SURF_BOUNDS;
+  const polygon = surferPlayfieldPolygon();
+  const first = boundary[0];
+  const last = boundary[boundary.length - 1];
+  const visible = surfer.drawBox(assets);
+  const visibleBox = {
+    x: surfer.x - visible.width / 2,
+    y: surfer.y - visible.height / 2,
+    width: visible.width,
+    height: visible.height
+  };
+
+  ctx.save();
+  ctx.fillStyle = "rgba(255, 255, 255, 0.16)";
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(CONFIG.WIDTH, 0);
+  ctx.lineTo(bounds.right, last.y);
+  for (let i = boundary.length - 1; i >= 0; i -= 1) {
+    ctx.lineTo(boundary[i].x, boundary[i].y);
+  }
+  ctx.lineTo(0, first.y);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = "#68ff8f";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  boundary.forEach((point, index) => {
+    if (index === 0) {
+      ctx.moveTo(point.x, point.y);
+    } else {
+      ctx.lineTo(point.x, point.y);
+    }
+  });
+  ctx.stroke();
+
+  ctx.strokeStyle = "#ffdf70";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(bounds.right, last.y);
+  ctx.lineTo(bounds.right, bounds.bottom);
+  ctx.lineTo(first.x, bounds.bottom);
+  ctx.stroke();
+
+  ctx.strokeStyle = "rgba(104, 255, 143, 0.48)";
+  ctx.beginPath();
+  polygon.forEach((point, index) => {
+    if (index === 0) {
+      ctx.moveTo(point.x, point.y);
+    } else {
+      ctx.lineTo(point.x, point.y);
+    }
+  });
+  ctx.closePath();
+  ctx.stroke();
+
+  ctx.font = "13px 'Courier New', monospace";
+  ctx.textBaseline = "bottom";
+  ctx.textAlign = "left";
+  boundary.forEach((point) => {
+    ctx.fillStyle = "#68ff8f";
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillText(`${point.x},${point.y}`, point.x + 7, point.y - 7);
+  });
+
+  ctx.strokeStyle = "#ffffff";
+  ctx.setLineDash([6, 5]);
+  ctx.strokeRect(visibleBox.x, visibleBox.y, visibleBox.width, visibleBox.height);
+  ctx.setLineDash([]);
   ctx.restore();
 }
 
