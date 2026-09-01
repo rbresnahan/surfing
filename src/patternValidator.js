@@ -2,6 +2,7 @@ import { CONFIG } from "./config.js";
 import { centeredRect, rectsOverlap } from "./collision.js";
 import { obstacleRowCenter } from "./rowGeometry.js";
 import { patternHorizontalDuration } from "./obstaclePatterns.js";
+import { clampSurferCenterToPlayfield, isSurferPositionValid } from "./surferGeometry.js";
 
 const validationCache = new Map();
 
@@ -9,11 +10,12 @@ export function validatePatternSequence(patterns, options = {}) {
   const config = options.config ?? CONFIG;
   const speed = options.speed ?? config.OBSTACLE_START_SPEED;
   const surferY = options.surferY ?? midpoint(config.SURF_BOUNDS.top, config.SURF_BOUNDS.bottom);
-  const key = cacheKey(patterns, speed, surferY, config);
+  const playerX = options.playerX ?? defaultPlayerX(config);
+  const key = cacheKey(patterns, speed, surferY, playerX, config);
   if (validationCache.has(key)) return validationCache.get(key);
 
   const obstacles = flattenPatterns(patterns, speed, config);
-  const result = validateObstacleTimeline(obstacles, { ...options, speed, surferY, config });
+  const result = validateObstacleTimeline(obstacles, { ...options, speed, surferY, playerX, config });
   validationCache.set(key, result);
   return result;
 }
@@ -26,12 +28,14 @@ export function validateObstacleTimeline(obstacles, options = {}) {
   const padding = options.padding ?? config.PATTERN_VALIDATION_PADDING;
   const reaction = options.reactionSeconds ?? config.PATTERN_VALIDATION_REACTION_SECONDS;
   const surferHalfHeight = options.surferHalfHeight ?? (config.SURFER_DISPLAY_HEIGHT * config.SURFER_HITBOX_SCALE_Y) / 2;
-  const surferWidth = options.surferWidth ?? config.SURFER_DISPLAY_HEIGHT * config.SURFER_HITBOX_SCALE_X;
-  const playerX = options.playerX ?? config.SURF_BOUNDS.left + (config.SURF_BOUNDS.right - config.SURF_BOUNDS.left) * 0.35;
-  const initialY = options.surferY ?? midpoint(config.SURF_BOUNDS.top, config.SURF_BOUNDS.bottom);
+  const surferWidth = options.surferWidth ?? config.SURFER_DISPLAY_WIDTH * config.SURFER_HITBOX_SCALE_X;
+  const playerX = options.playerX ?? defaultPlayerX(config);
+  const rawInitialY = options.surferY ?? midpoint(config.SURF_BOUNDS.top, config.SURF_BOUNDS.bottom);
+  const initialY = clampSurferCenterToPlayfield(playerX, rawInitialY, config).y;
   const duration = options.duration ?? timelineDuration(obstacles, speed, config);
-  const ySamples = buildYSamples(config, yStep, surferHalfHeight);
-  if (!ySamples.length || !obstacles.length) return { valid: obstacles.length > 0, safeRoute: ySamples };
+  const ySamples = buildYSamples(config, yStep, playerX, initialY);
+  if (!ySamples.length) return { valid: false, reason: "no-legal-positions", safeRoute: [] };
+  if (!obstacles.length) return { valid: false, safeRoute: ySamples };
 
   let reachable = new Set(
     ySamples.filter((y) =>
@@ -131,25 +135,35 @@ function obstacleRectAtTime(obstacle, t, { config, padding }) {
   return centeredRect(x, obstacle.y, halfWidth * 2, halfHeight * 2);
 }
 
-function buildYSamples(config, yStep, surferHalfHeight) {
-  const top = config.SURF_BOUNDS.top + surferHalfHeight;
-  const bottom = config.SURF_BOUNDS.bottom - surferHalfHeight;
+function buildYSamples(config, yStep, playerX, initialY) {
+  const top = config.SURF_BOUNDS.top - config.SURFER_DISPLAY_HEIGHT;
+  const bottom = config.SURF_BOUNDS.bottom + config.SURFER_DISPLAY_HEIGHT;
   const samples = [];
   for (let y = top; y <= bottom + 0.001; y += yStep) {
-    samples.push(y);
+    if (isSurferPositionValid(playerX, y, config)) samples.push(y);
   }
-  if (!samples.includes(bottom)) samples.push(bottom);
+  if (!samples.includes(initialY) && isSurferPositionValid(playerX, initialY, config)) {
+    samples.push(initialY);
+    samples.sort((a, b) => a - b);
+  }
   return samples;
 }
 
-function cacheKey(patterns, speed, surferY, config) {
+function cacheKey(patterns, speed, surferY, playerX, config) {
   return JSON.stringify({
     ids: patterns.map(({ pattern, startTime = 0 }) => [pattern.id, pattern.mirrored, startTime]),
     speed: Math.round(speed),
     surferY: Math.round(surferY),
+    playerX: Math.round(playerX * 1000) / 1000,
     bounds: config.SURF_BOUNDS,
+    surferBoundary: config.SURFER_PLAYFIELD_BOUNDARY,
+    surferMovementFootprint: config.SURFER_MOVEMENT_FOOTPRINT,
     rows: config.OBSTACLE_ROW_COUNT
   });
+}
+
+function defaultPlayerX(config) {
+  return config.SURF_BOUNDS.left + (config.SURF_BOUNDS.right - config.SURF_BOUNDS.left) * 0.35;
 }
 
 function midpoint(a, b) {

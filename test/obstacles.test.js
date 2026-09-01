@@ -10,6 +10,7 @@ import {
 } from "../src/dodgeObstacles.js";
 import { OBSTACLE_PATTERNS, PATTERN_BY_ID, instantiatePattern, validatePatternTuning } from "../src/obstaclePatterns.js";
 import { obstacleRowCenter, obstacleRowCenters } from "../src/rowGeometry.js";
+import { isSurferPositionValid } from "../src/surferGeometry.js";
 import { validateObstacleTimeline, validatePatternSequence } from "../src/patternValidator.js";
 import {
   canSpawnNextEvent,
@@ -571,6 +572,7 @@ test("a wall with only one usable row is rejected", () => {
 
 test("valid diagonal route is accepted and too-fast diagonal route is rejected", () => {
   const pattern = instantiatePattern(PATTERN_BY_ID["diagonal-weave"], { mirror: false });
+  const routePlayerX = 420;
   const compressedPattern = {
     ...pattern,
     id: "compressed-diagonal-weave",
@@ -581,15 +583,40 @@ test("valid diagonal route is accepted and too-fast diagonal route is rejected",
   };
   const valid = validatePatternSequence([{ pattern }], {
     speed: CONFIG.OBSTACLE_START_SPEED,
-    surferY: obstacleRowCenter(5)
+    surferY: obstacleRowCenter(5),
+    playerX: routePlayerX
   });
   const tooFast = validatePatternSequence([{ pattern: compressedPattern }], {
     speed: CONFIG.OBSTACLE_START_SPEED,
-    surferY: obstacleRowCenter(5)
+    surferY: obstacleRowCenter(5),
+    playerX: routePlayerX
   });
 
+  assert.equal(isSurferPositionValid(routePlayerX, valid.safeRoute.at(-1).ys[0]), true);
   assert.equal(valid.valid, true);
   assert.equal(tooFast.valid, false);
+});
+
+test("fairness validator samples surfer positions through authoritative movement geometry", () => {
+  const obstacle = createTestHead(CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING, obstacleRowCenter(3));
+  const impossibleMovementConfig = {
+    ...CONFIG,
+    SURFER_MOVEMENT_FOOTPRINT: [
+      { x: -1000, y: -1000 },
+      { x: 1000, y: -1000 },
+      { x: 1000, y: 1000 },
+      { x: -1000, y: 1000 }
+    ]
+  };
+
+  const result = validateObstacleTimeline([obstacle], {
+    config: impossibleMovementConfig,
+    speed: CONFIG.OBSTACLE_START_SPEED,
+    surferY: obstacleRowCenter(3)
+  });
+
+  assert.equal(result.valid, false);
+  assert.equal(result.reason, "no-legal-positions");
 });
 
 test("overlapping patterns are rejected when their combined route is blocked", () => {

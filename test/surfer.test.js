@@ -1,7 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { CONFIG } from "../src/config.js";
-import { clampSurferCenterToPlayfield, getSurferBoundaryYAtX, surferPlayfieldPolygon, Surfer } from "../src/surfer.js";
+import {
+  clampSurferCenterToPlayfield,
+  getSurferBoundaryYAtX,
+  isSurferPositionValid,
+  surferMovementFootprint,
+  surferMovementFootprintAt,
+  surferPlayfieldPolygon,
+  Surfer
+} from "../src/surfer.js";
 
 test("surfer begins with the idle sprite state", () => {
   const surfer = new Surfer();
@@ -78,53 +86,53 @@ test("pose rendering is contained in the fixed surfer gameplay box without disto
   assert.ok(ctx.drawnHeight <= CONFIG.SURFER_DISPLAY_HEIGHT);
 });
 
-test("repeated left movement keeps the surfer footprint inside the playable boundary", () => {
+test("repeated left movement keeps the surfer movement footprint inside the playable boundary", () => {
   const surfer = new Surfer();
 
   moveRepeatedly(surfer, -1, 0);
 
-  assertVisibleBoxInsideSurferPlayfield(visibleBox(surfer));
-  assert.ok(visibleBox(surfer).x > CONFIG.SURFER_PLAYFIELD_BOUNDARY[0].x);
+  assertMovementFootprintInsideSurferPlayfield(surfer.x, surfer.y);
+  assert.ok(Math.min(...surferMovementFootprintAt(surfer.x, surfer.y).map((point) => point.x)) > CONFIG.SURFER_PLAYFIELD_BOUNDARY[0].x);
 });
 
-test("repeated right movement keeps the surfer footprint inside the playable boundary", () => {
+test("repeated right movement keeps the surfer movement footprint inside the playable boundary", () => {
   const surfer = new Surfer();
 
   moveRepeatedly(surfer, 1, 0);
 
-  const box = visibleBox(surfer);
-  assert.equal(box.x + box.width, CONFIG.SURF_BOUNDS.right);
+  const maxX = Math.max(...surferMovementFootprintAt(surfer.x, surfer.y).map((point) => point.x));
+  assert.equal(maxX, CONFIG.SURF_BOUNDS.right);
 });
 
-test("repeated upward movement keeps the surfer footprint inside the playable boundary", () => {
+test("repeated upward movement keeps the surfer movement footprint inside the playable boundary", () => {
   const surfer = new Surfer();
-  surfer.x = CONFIG.SURF_BOUNDS.right - CONFIG.SURFER_DISPLAY_WIDTH / 2;
+  const rightFootprintX = Math.max(...surferMovementFootprint().map((point) => point.x));
+  surfer.x = CONFIG.SURF_BOUNDS.right - rightFootprintX;
 
   moveRepeatedly(surfer, 0, -1);
 
-  const box = visibleBox(surfer);
-  assertVisibleBoxInsideSurferPlayfield(box);
-  assert.equal(box.x + box.width, CONFIG.SURF_BOUNDS.right);
-  assert.ok(box.y > CONFIG.SURFER_PLAYFIELD_BOUNDARY.at(-1).y);
+  const footprint = surferMovementFootprintAt(surfer.x, surfer.y);
+  assertMovementFootprintInsideSurferPlayfield(surfer.x, surfer.y);
+  assert.equal(Math.max(...footprint.map((point) => point.x)), CONFIG.SURF_BOUNDS.right);
+  assert.ok(Math.min(...footprint.map((point) => point.y)) > CONFIG.SURFER_PLAYFIELD_BOUNDARY.at(-1).y);
 });
 
-test("repeated downward movement keeps the surfer footprint inside the playable boundary", () => {
+test("repeated downward movement keeps the surfer movement footprint inside the playable boundary", () => {
   const surfer = new Surfer();
 
   moveRepeatedly(surfer, 0, 1);
 
-  const box = visibleBox(surfer);
-  assert.equal(box.y + box.height, CONFIG.SURF_BOUNDS.bottom);
+  const maxY = Math.max(...surferMovementFootprintAt(surfer.x, surfer.y).map((point) => point.y));
+  assert.equal(maxY, CONFIG.SURF_BOUNDS.bottom);
 });
 
-test("diagonal movement into a corner clamps the surfer footprint on both axes", () => {
+test("diagonal movement into a corner clamps the surfer movement footprint on both axes", () => {
   const surfer = new Surfer();
 
   moveRepeatedly(surfer, -1, -1);
 
-  const box = visibleBox(surfer);
-  assertVisibleBoxInsideSurferPlayfield(box);
-  assert.equal(minSurferPlayfieldMargin(box) < 0.001, true);
+  assertMovementFootprintInsideSurferPlayfield(surfer.x, surfer.y);
+  assert.equal(minSurferPlayfieldMargin(surfer.x, surfer.y) < 0.001, true);
 });
 
 test("surfer playfield uses the configured upper-left boundary anchors", () => {
@@ -166,43 +174,35 @@ test("surfer boundary rises slightly at the right edge", () => {
 test("surfer cannot cross the diagonal top boundary", () => {
   const surfer = new Surfer();
   const boundary = CONFIG.SURFER_PLAYFIELD_BOUNDARY;
-  const halfWidth = CONFIG.SURFER_DISPLAY_WIDTH / 2;
+  const leftFootprintX = Math.min(...surferMovementFootprint().map((point) => point.x));
   const footprintLeftX = midpoint(boundary[2].x, boundary[3].x);
-  surfer.x = footprintLeftX + halfWidth;
+  surfer.x = footprintLeftX - leftFootprintX;
 
   moveRepeatedly(surfer, 0, -1);
 
-  assert.ok(visibleBox(surfer).x > footprintLeftX);
-  assertVisibleBoxInsideSurferPlayfield(visibleBox(surfer));
+  assert.ok(Math.min(...surferMovementFootprintAt(surfer.x, surfer.y).map((point) => point.x)) > footprintLeftX);
+  assertMovementFootprintInsideSurferPlayfield(surfer.x, surfer.y);
 });
 
 test("surfer cannot enter the whitecap-side area above the upper boundary", () => {
   const surfer = new Surfer();
-  surfer.x = 500 + CONFIG.SURFER_DISPLAY_WIDTH / 2;
+  const leftFootprintX = Math.min(...surferMovementFootprint().map((point) => point.x));
+  surfer.x = 500 - leftFootprintX;
 
   moveRepeatedly(surfer, 0, -1);
 
-  assert.ok(visibleBox(surfer).y > 128);
-  assertVisibleBoxInsideSurferPlayfield(visibleBox(surfer));
+  assert.ok(Math.min(...surferMovementFootprintAt(surfer.x, surfer.y).map((point) => point.y)) > 128);
+  assertMovementFootprintInsideSurferPlayfield(surfer.x, surfer.y);
 });
 
-test("surfer footprint is used when clamping against the near-vertical left boundary", () => {
+test("surfer movement footprint is used when clamping against the near-vertical left boundary", () => {
   const boundary = CONFIG.SURFER_PLAYFIELD_BOUNDARY;
-  const halfHeight = CONFIG.SURFER_DISPLAY_HEIGHT / 2;
-  const halfWidth = CONFIG.SURFER_DISPLAY_WIDTH / 2;
-  const clamped = clampSurferCenterToPlayfield(boundary[0].x + halfWidth, boundary[0].y - halfHeight, {
-    width: CONFIG.SURFER_DISPLAY_WIDTH,
-    height: CONFIG.SURFER_DISPLAY_HEIGHT
-  });
-  const box = {
-    x: clamped.x - halfWidth,
-    y: clamped.y - halfHeight,
-    width: CONFIG.SURFER_DISPLAY_WIDTH,
-    height: CONFIG.SURFER_DISPLAY_HEIGHT
-  };
+  const leftFootprintX = Math.min(...surferMovementFootprint().map((point) => point.x));
+  const topFootprintY = Math.min(...surferMovementFootprint().map((point) => point.y));
+  const clamped = clampSurferCenterToPlayfield(boundary[0].x - leftFootprintX, boundary[0].y - topFootprintY);
 
-  assertVisibleBoxInsideSurferPlayfield(box);
-  assert.ok(box.x > boundary[0].x);
+  assertMovementFootprintInsideSurferPlayfield(clamped.x, clamped.y);
+  assert.ok(Math.min(...surferMovementFootprintAt(clamped.x, clamped.y).map((point) => point.x)) > boundary[0].x);
 });
 
 test("surfer boundary is continuous where the diagonal meets the horizontal", () => {
@@ -214,17 +214,35 @@ test("surfer boundary is continuous where the diagonal meets the horizontal", ()
 });
 
 test("clamping projects an invalid center back into the polygonal playfield", () => {
-  const clamped = clampSurferCenterToPlayfield(120, 250, {
-    width: CONFIG.SURFER_DISPLAY_WIDTH,
-    height: CONFIG.SURFER_DISPLAY_HEIGHT
-  });
+  const clamped = clampSurferCenterToPlayfield(120, 250);
 
-  assertVisibleBoxInsideSurferPlayfield({
-    x: clamped.x - CONFIG.SURFER_DISPLAY_WIDTH / 2,
-    y: clamped.y - CONFIG.SURFER_DISPLAY_HEIGHT / 2,
-    width: CONFIG.SURFER_DISPLAY_WIDTH,
-    height: CONFIG.SURFER_DISPLAY_HEIGHT
-  });
+  assertMovementFootprintInsideSurferPlayfield(clamped.x, clamped.y);
+});
+
+test("movement footprint is authored independently from render and collision geometry", () => {
+  const footprint = surferMovementFootprint();
+  const displayBoxArea = CONFIG.SURFER_DISPLAY_WIDTH * CONFIG.SURFER_DISPLAY_HEIGHT;
+
+  assert.equal(footprint.length, 10);
+  assert.notEqual(footprint.some((point) => Math.abs(point.x) === CONFIG.SURFER_DISPLAY_WIDTH / 2), true);
+  assert.ok(polygonArea(footprint) < displayBoxArea);
+  assert.equal(isConvexPolygon(footprint), true);
+});
+
+test("movement footprint validity is pose independent", () => {
+  const surfer = new Surfer();
+  const clampedPositions = [];
+
+  for (const state of ["idle", "right", "up", "down", "left"]) {
+    surfer.state = state;
+    surfer.x = 120;
+    surfer.y = 250;
+    surfer.clamp();
+    assert.equal(isSurferPositionValid(surfer.x, surfer.y), true);
+    clampedPositions.push({ x: surfer.x, y: surfer.y });
+  }
+
+  assert.equal(new Set(clampedPositions.map(({ x, y }) => `${x},${y}`)).size, 1);
 });
 
 test("surfer movement away from boundaries is unchanged", () => {
@@ -270,32 +288,18 @@ function movingInput(x, y) {
   };
 }
 
-function visibleBox(surfer) {
-  return {
-    x: surfer.x - CONFIG.SURFER_DISPLAY_WIDTH / 2,
-    y: surfer.y - CONFIG.SURFER_DISPLAY_HEIGHT / 2,
-    width: CONFIG.SURFER_DISPLAY_WIDTH,
-    height: CONFIG.SURFER_DISPLAY_HEIGHT
-  };
-}
-
-function assertVisibleBoxInsideSurferPlayfield(box) {
-  const margins = surferPlayfieldMargins(box);
+function assertMovementFootprintInsideSurferPlayfield(centerX, centerY) {
+  const margins = surferPlayfieldMargins(centerX, centerY);
   assert.equal(margins.every((margin) => margin >= -0.001), true);
 }
 
-function minSurferPlayfieldMargin(box) {
-  return Math.min(...surferPlayfieldMargins(box));
+function minSurferPlayfieldMargin(centerX, centerY) {
+  return Math.min(...surferPlayfieldMargins(centerX, centerY));
 }
 
-function surferPlayfieldMargins(box) {
+function surferPlayfieldMargins(centerX, centerY) {
   const polygon = surferPlayfieldPolygon();
-  const corners = [
-    { x: box.x, y: box.y },
-    { x: box.x + box.width, y: box.y },
-    { x: box.x + box.width, y: box.y + box.height },
-    { x: box.x, y: box.y + box.height }
-  ];
+  const footprint = surferMovementFootprintAt(centerX, centerY);
   const margins = [];
 
   for (let i = 0; i < polygon.length; i += 1) {
@@ -304,12 +308,29 @@ function surferPlayfieldMargins(box) {
     const edgeX = b.x - a.x;
     const edgeY = b.y - a.y;
     const normalLength = Math.hypot(edgeX, edgeY);
-    for (const corner of corners) {
-      margins.push((edgeX * (corner.y - a.y) - edgeY * (corner.x - a.x)) / normalLength);
+    for (const point of footprint) {
+      margins.push((edgeX * (point.y - a.y) - edgeY * (point.x - a.x)) / normalLength);
     }
   }
 
   return margins;
+}
+
+function isConvexPolygon(points) {
+  const signs = points.map((point, index) => {
+    const next = points[(index + 1) % points.length];
+    const after = points[(index + 2) % points.length];
+    return (next.x - point.x) * (after.y - point.y) - (next.y - point.y) * (after.x - point.x);
+  });
+  return signs.every((sign) => sign > 0) || signs.every((sign) => sign < 0);
+}
+
+function polygonArea(points) {
+  const twiceArea = points.reduce((sum, point, index) => {
+    const next = points[(index + 1) % points.length];
+    return sum + point.x * next.y - next.x * point.y;
+  }, 0);
+  return Math.abs(twiceArea) / 2;
 }
 
 function midpoint(a, b) {

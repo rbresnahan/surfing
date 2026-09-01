@@ -9,10 +9,13 @@ import {
   COOLER_WAVE_PATTERNS,
   CoolerFishermanEncounter,
   createCoolerWavePlan,
+  coolerWaveValidationObstacles,
   validateCoolerWavePlan
 } from "../src/coolerFishermanEncounter.js";
 import { THROWABLES, waterRenderSize } from "../src/angryFishermanEncounter.js";
 import { obstacleRowCenter, obstacleRowCenters } from "../src/rowGeometry.js";
+import { validateObstacleTimeline } from "../src/patternValidator.js";
+import { isSurferPositionValid } from "../src/surferGeometry.js";
 
 const EXPECTED_COOLER_THROWABLE_DIMENSIONS = {
   bottle: { waterWidth: 92, collisionWidth: 62, collisionHeight: 30 },
@@ -187,6 +190,28 @@ test("every generated cooler wave contains a validated surfer-sized safe gap", (
     assert.ok(plan.gap.bottom > plan.gap.top);
     assert.equal(plan.items.some(({ item }) => item.id === "wallet"), false);
     assert.equal(plan.items.every(({ row, y }) => obstacleRowCenter(row) === y), true);
+  }
+});
+
+test("current second cooler encounter waves have movement-legal navigable routes", () => {
+  const encounter = new CoolerFishermanEncounter(fixedRandom([0, 0, 0.5, 0.2, 0.8, 0.35, 0.6]));
+  const gameState = createGameState();
+
+  encounter.start(gameState);
+  runUntil(encounter, gameState, () => encounter.isComplete(), new Set());
+
+  assert.equal(encounter.wavePlans.length, 3);
+  for (const plan of encounter.wavePlans) {
+    const result = validateObstacleTimeline(coolerWaveValidationObstacles(plan), {
+      speed: CONFIG.FISHERMAN_THROWABLE_SPEED,
+      surferY: midpoint(CONFIG.SURF_BOUNDS.top, CONFIG.SURF_BOUNDS.bottom)
+    });
+
+    assert.equal(result.valid, true, plan.pattern);
+    assert.equal(validateCoolerWavePlan(plan), true, plan.pattern);
+    assert.equal(result.safeRoute.every((step) =>
+      step.ys.every((y) => isSurferPositionValid(CONFIG.SURF_BOUNDS.left + (CONFIG.SURF_BOUNDS.right - CONFIG.SURF_BOUNDS.left) * 0.35, y))
+    ), true, plan.pattern);
   }
 });
 
@@ -481,6 +506,10 @@ function dumpingEncounter(side, rows) {
 
 function crossingDt(encounter, row) {
   return Math.abs(obstacleRowCenter(row) - encounter.releasePoint().y) / CONFIG.COOLER_BOAT_VERTICAL_SPEED + 0.001;
+}
+
+function midpoint(a, b) {
+  return a + (b - a) / 2;
 }
 
 function runUntil(encounter, gameState, done, phasesSeen) {

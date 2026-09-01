@@ -8,7 +8,7 @@ import { Input } from "./input.js";
 import { ObstacleManager } from "./obstacles.js";
 import { rectsOverlap } from "./collision.js";
 import { calculateScore, formatTime, loadRecords, saveRecords } from "./scoring.js";
-import { Surfer, surferPlayfieldPolygon } from "./surfer.js";
+import { Surfer, surferMovementFootprintAt, surferPlayfieldPolygon } from "./surfer.js";
 import { obstacleRows, obstacleRowSpacing } from "./rowGeometry.js";
 
 const canvas = document.querySelector("#game");
@@ -475,6 +475,20 @@ function drawDebugSurferBounds() {
   ctx.setLineDash([6, 5]);
   ctx.strokeRect(visibleBox.x, visibleBox.y, visibleBox.width, visibleBox.height);
   ctx.setLineDash([]);
+
+  const footprint = surferMovementFootprintAt(surfer.x, surfer.y);
+  ctx.strokeStyle = "#ffdf70";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  footprint.forEach((point, index) => {
+    if (index === 0) {
+      ctx.moveTo(point.x, point.y);
+    } else {
+      ctx.lineTo(point.x, point.y);
+    }
+  });
+  ctx.closePath();
+  ctx.stroke();
   ctx.restore();
 }
 

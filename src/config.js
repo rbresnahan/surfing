@@ -1,17 +1,29 @@
-export const VERSION = "v0.5.2";
+export const VERSION = "v0.6.0";
 
 const SURFER_DISPLAY_HEIGHT = 140;
 const SURFER_DISPLAY_WIDTH = 1199 * (SURFER_DISPLAY_HEIGHT / 1312);
 
 export const CONFIG = {
   DEBUG: false,
-  DEVELOPER_CONTROLS: true,
+  DEVELOPER_CONTROLS: false,
   DEBUG_START_STAGE: null,
   DEBUG_REDUCED_SPEED_MULTIPLIER: 1,
   WIDTH: 1024,
   HEIGHT: 576,
   SURFER_DISPLAY_WIDTH,
   SURFER_DISPLAY_HEIGHT,
+  SURFER_MOVEMENT_FOOTPRINT: [
+    { x: -65, y: 37 },
+    { x: -64, y: -5 },
+    { x: -41, y: -61 },
+    { x: 1, y: -71 },
+    { x: 35, y: -56 },
+    { x: 52, y: -42 },
+    { x: 64, y: 54 },
+    { x: 56, y: 62 },
+    { x: -22, y: 64 },
+    { x: -58, y: 57 }
+  ],
   SURFER_SPEED: 260,
   SURFER_HITBOX_SCALE_X: 0.6,
   SURFER_HITBOX_SCALE_Y: 0.64,
@@ -117,7 +129,7 @@ export const CONFIG = {
   WIPEOUT_SECONDS: 1,
   SCORE_TIME_MULTIPLIER: 100,
   SCORE_DODGE_VALUE: 500,
-  STORAGE_KEY: "surf-game-v0.5.2-records"
+  STORAGE_KEY: "surf-game-v0.6.0-records"
 };
 
 CONFIG.ENCOUNTER_SEQUENCE = [

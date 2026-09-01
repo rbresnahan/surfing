@@ -374,7 +374,14 @@ export function validateCoolerWavePlan(plan) {
   if (plan.items.some(({ item }) => item.id === WALLET_THROWABLE_ID)) return false;
   if (plan.items.some(({ row }) => !Number.isInteger(row))) return false;
 
-  return validateObstacleTimeline(plan.items.map((planItem) => ({
+  return validateObstacleTimeline(coolerWaveValidationObstacles(plan), {
+    speed: CONFIG.FISHERMAN_THROWABLE_SPEED,
+    surferY: midpoint(CONFIG.SURF_BOUNDS.top, CONFIG.SURF_BOUNDS.bottom)
+  }).valid;
+}
+
+export function coolerWaveValidationObstacles(plan) {
+  return plan.items.map((planItem) => ({
     row: planItem.row,
     y: planItem.y ?? obstacleRowCenter(planItem.row),
     x: CONFIG.FISHERMAN_STOP_X + COOLER_OPENING_OFFSET_X - CONFIG.COOLER_DROP_DISTANCE_X +
@@ -384,10 +391,7 @@ export function validateCoolerWavePlan(plan) {
     collisionHeight: planItem.item.collisionHeight,
     collisionScale: planItem.item.collisionScale,
     speed: CONFIG.FISHERMAN_THROWABLE_SPEED * planItem.item.speedMultiplier
-  })), {
-    speed: CONFIG.FISHERMAN_THROWABLE_SPEED,
-    surferY: midpoint(CONFIG.SURF_BOUNDS.top, CONFIG.SURF_BOUNDS.bottom)
-  }).valid;
+  }));
 }
 
 export function createWaterObstacle(item, x, y, options = {}) {
