@@ -32,7 +32,7 @@ import {
   obstacleSpeedForTime,
   spawnDelayForTime
 } from "../src/obstacles.js";
-import { DIFFICULTY_STAGES, stageTuning } from "../src/obstacleTuning.js";
+import { DIFFICULTY_STAGES, SWIMMER_TIERS, stageTuning } from "../src/obstacleTuning.js";
 
 const HEAD_TYPE = getDodgeObstacleType("head");
 const NOODLE_GIRL_TYPE = getDodgeObstacleType("noodle-girl");
@@ -404,6 +404,61 @@ test("authored pattern tuning references valid stages, rows, and pattern IDs", (
 
   assert.deepEqual(result.errors, []);
   assert.equal(result.valid, true);
+});
+
+test("authored normal swimmer patterns never spawn more than two swimmers at one timestamp", () => {
+  for (const pattern of OBSTACLE_PATTERNS) {
+    assert.ok(maxSimultaneousSwimmers(pattern) <= 2, pattern.id);
+  }
+});
+
+test("scheduled tier 1-3 swimmer patterns never spawn more than two swimmers at one timestamp", () => {
+  for (const tier of Object.values(SWIMMER_TIERS)) {
+    for (const patternId of tier.schedule) {
+      assert.ok(maxSimultaneousSwimmers(PATTERN_BY_ID[patternId]) <= 2, patternId);
+    }
+  }
+});
+
+test("tier 1-3 deterministic schedule order remains authored", () => {
+  assert.deepEqual(SWIMMER_TIERS[1].schedule, [
+    "opening-single-low",
+    "opening-single-high",
+    "opening-pair-wide",
+    "opening-gate-top",
+    "opening-gate-bottom",
+    "opening-single-center"
+  ]);
+  assert.deepEqual(SWIMMER_TIERS[2].schedule, [
+    "stage1-alternating-openings",
+    "stage1-same-row-follow",
+    "stage1-high-low",
+    "stage1-low-high",
+    "stage1-diagonal"
+  ]);
+  assert.deepEqual(SWIMMER_TIERS[3].schedule, [
+    "stage2-staggered-diagonal",
+    "stage2-sweeping-staircase",
+    "stage2-split-clusters",
+    "stage2-dense-gate",
+    "stage2-long-weave"
+  ]);
+});
+
+test("every scheduled tier 1 pattern creates and validates at runtime", () => {
+  for (const patternId of SWIMMER_TIERS[1].schedule) {
+    const event = createObstacleEvent({
+      surferY: 300,
+      elapsed: 0,
+      pattern: PATTERN_BY_ID[patternId],
+      difficultyTier: 1
+    });
+
+    assert.notEqual(event, null, patternId);
+    assert.equal(event.patternId, patternId);
+    assert.equal(isEventFair(event, 300, event.speed), true, patternId);
+    assert.equal(isEventPlacementClear(event), true, patternId);
+  }
 });
 
 test("deterministic scheduler repeats the same stage sequence after reset", () => {
@@ -980,6 +1035,14 @@ function midpoint(a, b) {
 
 function assertAlmostEqual(actual, expected, epsilon = 1e-9) {
   assert.ok(Math.abs(actual - expected) <= epsilon, `${actual} did not equal ${expected}`);
+}
+
+function maxSimultaneousSwimmers(pattern) {
+  const counts = new Map();
+  for (const obstacle of pattern.obstacles) {
+    counts.set(obstacle.timeOffset, (counts.get(obstacle.timeOffset) ?? 0) + 1);
+  }
+  return Math.max(0, ...counts.values());
 }
 
 function sampleScheduledEvents() {

@@ -25,8 +25,8 @@ export const OBSTACLE_PATTERNS = [
   gate("center-gate", 0, [2, 3], "legacy central opening", ["head", "noodle-man", "tube-woman", "scuba-man"]),
 
   pattern("stage1-alternating-openings", 1, [
-    ...rowsForOpening([1, 2]).map((row, index) => hit(row, 0, typeAt(index))),
-    ...rowsForOpening([3, 4]).map((row, index) => hit(row, 1.65, typeAt(index + 2)))
+    ...cascadeRows(rowsForOpening([1, 2]), 0, 0.25, 0),
+    ...cascadeRows(rowsForOpening([3, 4]), 1.65, 0.25, 2)
   ], "alternating two-row openings"),
   pattern("stage1-same-row-follow", 1, [
     hit(2, 0, "head"),
@@ -47,13 +47,13 @@ export const OBSTACLE_PATTERNS = [
     hit(1, 2.5, "tube-woman")
   ], "simple diagonal weaving"),
   pattern("alternating-gates", 1, [
-    ...rowsForOpening([1, 2]).map((row, index) => hit(row, 0, typeAt(index))),
-    ...rowsForOpening([3, 4]).map((row, index) => hit(row, 2.2, typeAt(index + 2)))
+    ...cascadeRows(rowsForOpening([1, 2]), 0, 0.25, 0),
+    ...cascadeRows(rowsForOpening([3, 4]), 2.2, 0.25, 2)
   ], "legacy alternating gates"),
   pattern("diagonal-weave", 1, [
-    ...rowsForOpening([0, 1]).map((row, index) => hit(row, 0, typeAt(index))),
-    ...rowsForOpening([1, 2]).map((row, index) => hit(row, 2, typeAt(index + 2))),
-    ...rowsForOpening([2, 3]).map((row, index) => hit(row, 4, typeAt(index + 4)))
+    ...cascadeRows(rowsForOpening([0, 1]), 0, 0.25, 0),
+    ...cascadeRows(rowsForOpening([1, 2]), 2, 0.25, 2),
+    ...cascadeRows(rowsForOpening([2, 3]), 4, 0.25, 4)
   ], "legacy diagonal route"),
 
   pattern("stage2-staggered-diagonal", 2, [
@@ -80,17 +80,11 @@ export const OBSTACLE_PATTERNS = [
     hit(1, 3, "tube-woman")
   ], "legacy sweeping staircase"),
   pattern("split-clusters", 2, [
-    hit(0, 0, "head"),
-    hit(1, 0, "noodle-girl"),
-    hit(4, 0, "tube-girl"),
-    hit(5, 0, "tube-woman"),
+    ...cascadeRows([0, 1, 4, 5], 0, 0.25, 0),
     hit(2, 1.05, "scuba-man")
   ], "legacy split clusters"),
   pattern("dense-finale", 2, [
-    hit(0, 0, "head"),
-    hit(1, 0, "noodle-girl"),
-    hit(4, 0, "tube-girl"),
-    hit(5, 0, "tube-woman"),
+    ...cascadeRows([0, 1, 4, 5], 0, 0.25, 0),
     hit(2, 1.1, "scuba-man"),
     hit(3, 2.2, "head")
   ], "legacy dense gate", { allowOverlap: true })
@@ -153,7 +147,7 @@ export function validatePatternTuning() {
 }
 
 function gate(id, stage, openRows, safeRoute, typeIds) {
-  return pattern(id, stage, rowsForOpening(openRows).map((row, index) => hit(row, 0, typeIds[index])), safeRoute);
+  return pattern(id, stage, cascadeRows(rowsForOpening(openRows), 0, 0.25, 0, typeIds), safeRoute);
 }
 
 function pattern(id, stage, obstacles, safeRoute, options = {}) {
@@ -174,6 +168,12 @@ function hit(row, timeOffset = 0, typeId = "head") {
     timeOffset,
     typeId
   };
+}
+
+function cascadeRows(rows, startOffset, stepSeconds, typeStartIndex = 0, typeIds = null) {
+  return rows.map((row, index) =>
+    hit(row, startOffset + index * stepSeconds, typeIds?.[index] ?? typeAt(typeStartIndex + index))
+  );
 }
 
 function typeAt(index) {
