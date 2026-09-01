@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { DiagnosticsSink } from "../src/diagnostics.js";
 import { EncounterManager } from "../src/encounterManager.js";
 import { ObstacleManager } from "../src/obstacles.js";
 import { RunController } from "../src/runController.js";
@@ -114,6 +115,104 @@ test("run controller supports encounter to encounter and consumes cooler-style h
   assert.equal(controller.activeSwimmerSection.id, "after");
 });
 
+test("authored encounter to swimmer sequence starts only the authored section", () => {
+  const diagnostics = enabledDiagnostics();
+  const manager = new EncounterManager({ diagnostics });
+  const encounter = fakeEncounter({
+    id: "boat",
+    completeAfterUpdate: true,
+    difficultyStageOnComplete: 1
+  });
+  manager.register(encounter);
+  const controller = new RunController({
+    encounterManager: manager,
+    diagnostics,
+    sequence: [
+      { type: "encounter", id: "boat" },
+      { type: "swimmers", id: "authored-tier-three", tier: 3, completion: { type: "endless" } }
+    ]
+  });
+
+  controller.update(0.016, gameStateAt(1));
+
+  assert.equal(controller.activeSwimmerSection.id, "authored-tier-three");
+  assert.equal(controller.activeSwimmerSection.tierId, 3);
+  assert.equal(manager.difficultyStage, 1);
+  assert.deepEqual(startedSectionIds(diagnostics), ["authored-tier-three"]);
+});
+
+test("authored swimmer tier is not overridden by mismatched encounter metadata", () => {
+  const diagnostics = enabledDiagnostics();
+  const manager = new EncounterManager({ diagnostics });
+  const encounter = fakeEncounter({
+    id: "metadata-tier-two",
+    completeAfterUpdate: true,
+    difficultyStageOnComplete: 1
+  });
+  manager.register(encounter);
+  const controller = new RunController({
+    encounterManager: manager,
+    diagnostics,
+    sequence: [
+      { type: "encounter", id: "metadata-tier-two" },
+      { type: "swimmers", id: "authored-tier-three", tier: 3, completion: { type: "endless" } }
+    ]
+  });
+
+  controller.update(0.016, gameStateAt(1));
+
+  assert.equal(controller.activeSwimmerSection.id, "authored-tier-three");
+  assert.equal(controller.activeSwimmerSection.tierId, 3);
+  assert.equal(controller.obstacleOptions().tierTuning.id, 3);
+  assert.equal(startedSectionIds(diagnostics).includes("legacy-endless-swimmers"), false);
+});
+
+test("authored cooler handoff keeps swimmer section inactive until toss completes", () => {
+  const diagnostics = enabledDiagnostics();
+  const manager = new EncounterManager({ diagnostics });
+  const cooler = fakeEncounter({
+    id: "cooler",
+    completeAfterUpdate: true,
+    difficultyStageOnComplete: 2,
+    createHandoffState: () => ({
+      targetEncounterId: "cooler-toss",
+      boat: { x: 800, y: 320, width: 210 }
+    })
+  });
+  const toss = fakeEncounter({
+    id: "cooler-toss",
+    difficultyStageOnComplete: 2,
+    canStartWithHandoff: (handoff) => handoff.targetEncounterId === "cooler-toss"
+  });
+  manager.register(cooler);
+  manager.register(toss);
+  const controller = new RunController({
+    encounterManager: manager,
+    diagnostics,
+    sequence: [
+      { type: "encounter", id: "cooler" },
+      { type: "encounter", id: "cooler-toss" },
+      { type: "swimmers", id: "after-toss", tier: 3, completion: { type: "endless" } }
+    ]
+  });
+
+  controller.update(0.016, gameStateAt(1));
+
+  assert.equal(toss.started, 1);
+  assert.equal(manager.activeEncounter, toss);
+  assert.equal(controller.activeSwimmerSection, null);
+  assert.equal(controller.currentBlockIndex, 1);
+  assert.equal(startedSectionIds(diagnostics).includes("legacy-endless-swimmers"), false);
+
+  toss.completeAfterUpdate = true;
+  controller.update(0.016, gameStateAt(2));
+
+  assert.equal(toss.started, 1);
+  assert.equal(controller.currentBlockIndex, 2);
+  assert.equal(controller.activeSwimmerSection.id, "after-toss");
+  assert.deepEqual(startedSectionIds(diagnostics), ["after-toss"]);
+});
+
 test("reset returns controller to initial swimmer state", () => {
   const manager = new EncounterManager();
   const controller = new RunController({ encounterManager: manager });
@@ -178,6 +277,19 @@ function spawnAndResolve(obstacles, section) {
     head.x = CONFIG.OBSTACLE_SUBMERGE_END_X + 1;
   }
   obstacles.update(0.1, 0.1, 300, section.obstacleOptions());
+}
+
+function enabledDiagnostics() {
+  const diagnostics = new DiagnosticsSink({ channelFactory: () => ({ postMessage() {} }) });
+  diagnostics.enable();
+  diagnostics.startRun();
+  return diagnostics;
+}
+
+function startedSectionIds(diagnostics) {
+  return diagnostics.events
+    .filter((event) => event.type === "swimmer_section.started")
+    .map((event) => event.payload.sectionId);
 }
 
 function fakeEncounter(options = {}) {

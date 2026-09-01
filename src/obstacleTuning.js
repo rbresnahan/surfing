@@ -81,7 +81,10 @@ export const DEBUG_TUNING = {
 };
 
 export function swimmerTier(tierId) {
-  const tier = SWIMMER_TIERS[Math.floor(tierId)];
+  if (!Number.isInteger(tierId)) {
+    throw new Error(`Unknown swimmer tier: ${tierId}`);
+  }
+  const tier = SWIMMER_TIERS[tierId];
   if (!tier) {
     throw new Error(`Unknown swimmer tier: ${tierId}`);
   }

@@ -118,6 +118,12 @@ test("same section and tier reset deterministic pattern order", () => {
 });
 
 test("section validation rejects invalid authoring clearly", () => {
+  for (const valid of [1, 2, 3]) {
+    assert.equal(swimmerTier(valid).id, valid);
+  }
+  for (const invalid of [2.5, 0, 4, "2", null, undefined, NaN, Infinity]) {
+    assert.throws(() => swimmerTier(invalid), /Unknown swimmer tier/);
+  }
   assert.throws(() => validateSwimmerSectionDefinition({
     id: "bad-tier",
     tier: 9,
@@ -159,6 +165,29 @@ test("section validation rejects invalid authoring clearly", () => {
     { id: "repeat", tier: 1, completion: { type: "endless" } },
     { id: "repeat", tier: 1, completion: { type: "endless" } }
   ]), /Duplicate swimmer section id/);
+});
+
+test("shouldSchedule reflects active scheduling state for endless and finite sections", () => {
+  const endless = new SwimmerSection({
+    id: "endless",
+    tier: 1,
+    completion: { type: "endless" }
+  });
+  assert.equal(endless.shouldSchedule(), false);
+  endless.start(0);
+  assert.equal(endless.shouldSchedule(), true);
+
+  const finite = new SwimmerSection({
+    id: "finite",
+    tier: 1,
+    completion: { type: "patterns", count: 1 }
+  });
+  finite.start(0);
+  assert.equal(finite.shouldSchedule(), true);
+  finite.startDraining(1);
+  assert.equal(finite.shouldSchedule(), false);
+  finite.complete(2);
+  assert.equal(finite.shouldSchedule(), false);
 });
 
 test("tuning overrides can soften but not exceed a tier envelope", () => {

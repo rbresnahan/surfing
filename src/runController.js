@@ -80,7 +80,10 @@ export class RunController {
   onEncounterCompleted(encounter, gameState = {}, details = {}) {
     const nextStage = encounter?.difficultyStageOnComplete;
     if (Number.isInteger(nextStage)) {
-      this.setLegacyTier(nextStage + 1, gameState.elapsedSeconds ?? 0);
+      this.updateCompatibilityDifficultyMirror(nextStage + 1);
+      if (!this.sequenceDefinitions) {
+        this.startLegacyTier(nextStage + 1, gameState.elapsedSeconds ?? 0);
+      }
     }
     this.completedEncounterIds.add(details.registrationKey ?? encounter?.id);
     if (this.sequenceDefinitions && details.handoffActivated) {
@@ -100,11 +103,20 @@ export class RunController {
   }
 
   setLegacyTier(tierId, elapsedSeconds = 0) {
+    this.startLegacyTier(tierId, elapsedSeconds);
+  }
+
+  updateCompatibilityDifficultyMirror(tierId) {
     const tier = swimmerTier(tierId);
-    if (this.legacyTierId === tier.id && this.activeSwimmerSection?.tierId === tier.id) return;
-    this.activeSwimmerSection?.cleanup(elapsedSeconds, "tier-change");
     this.legacyTierId = tier.id;
     if (this.encounterManager) this.encounterManager.difficultyStage = tier.id - 1;
+    return tier;
+  }
+
+  startLegacyTier(tierId, elapsedSeconds = 0) {
+    const tier = this.updateCompatibilityDifficultyMirror(tierId);
+    if (this.activeSwimmerSection?.id === "legacy-endless-swimmers" && this.activeSwimmerSection.tierId === tier.id) return;
+    this.activeSwimmerSection?.cleanup(elapsedSeconds, "tier-change");
     this.startLegacySwimmerSection(elapsedSeconds);
   }
 

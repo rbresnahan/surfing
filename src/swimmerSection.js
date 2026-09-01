@@ -76,7 +76,7 @@ export class SwimmerSection {
   }
 
   shouldSchedule() {
-    return this.isActive && !this.draining && this.completion.type !== "endless";
+    return this.isActive && !this.draining;
   }
 
   allowsSpawning() {
