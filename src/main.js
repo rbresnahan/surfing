@@ -6,6 +6,7 @@ import { DIAGNOSTIC_CHANNEL_NAME, createDiagnosticsSink } from "./diagnostics.js
 import { createEncounterManager, encounterCatalog } from "./encounterRegistry.js";
 import { Input } from "./input.js";
 import { ObstacleManager } from "./obstacles.js";
+import { RunController } from "./runController.js";
 import { rectsOverlap } from "./collision.js";
 import { calculateScore, formatTime, loadRecords, saveRecords } from "./scoring.js";
 import { Surfer, surferMovementFootprintAt, surferPlayfieldPolygon } from "./surfer.js";
@@ -26,6 +27,7 @@ const surfer = new Surfer();
 const diagnostics = createDiagnosticsSink();
 const obstacles = new ObstacleManager({ diagnostics });
 const encounters = createEncounterManager({ diagnostics });
+const runController = new RunController({ encounterManager: encounters, diagnostics });
 const antiCamp = new AntiCampManager({ diagnostics });
 let assets = null;
 let state = GameState.READY;
@@ -79,11 +81,11 @@ function update(dt) {
     survivalTime += runDt;
     surfer.update(runDt, input);
     const gameState = buildEncounterGameState();
-    encounters.update(runDt, gameState);
-    const normalSpawnsPaused = encounters.shouldPauseNormalSpawns();
+    runController.update(runDt, gameState);
+    const normalSpawnsPaused = runController.shouldPauseNormalSpawns();
     headsDodged += obstacles.update(runDt, survivalTime, surfer.y, {
+      ...runController.obstacleOptions(),
       pauseSpawns: normalSpawnsPaused,
-      difficultyStage: encounters.difficultyStage,
       pauseOwner: diagnostics.enabled && encounters.activeEncounter ? diagnostics.occurrenceId(encounters.activeEncounter) : null,
       onNormalEventCompleted: () => {
         if (!normalSpawnsPaused && encounters.activeEncounter === null) {
@@ -120,7 +122,7 @@ function startRun() {
   input.reset();
   surfer.reset();
   obstacles.reset();
-  encounters.reset();
+  runController.reset(0);
   antiCamp.reset(surfer, { elapsedSeconds: 0, reason: "start" });
   backgroundMusic.start();
 }
@@ -132,7 +134,7 @@ function crash() {
   obstacles.markCollided(survivalTime);
   antiCamp.markCollided(survivalTime);
   antiCamp.reset(surfer, { elapsedSeconds: survivalTime, reason: "crash" });
-  encounters.cleanupActive(buildEncounterGameState());
+  runController.cleanup(survivalTime, "crash");
   diagnostics.endRun({
     elapsedSeconds: survivalTime,
     finalScore,
@@ -191,7 +193,9 @@ function buildEncounterGameState() {
     obstacles,
     assets,
     music: backgroundMusic,
-    difficultyStage: encounters.difficultyStage,
+    swimmerTier: runController.activeSwimmerSection?.tierId ?? null,
+    difficultyStage: (runController.activeSwimmerSection?.tierId ?? 1) - 1,
+    runController,
     diagnostics,
     occurrenceId: diagnostics.enabled && encounters.activeEncounter ? diagnostics.occurrenceId(encounters.activeEncounter) : null
   };
@@ -506,9 +510,12 @@ function drawDebugRows() {
     ctx.fillText(`${row}`, CONFIG.SURF_BOUNDS.left - 22, centerY);
   }
   const activeId = obstacles.activeEvent?.patternId ?? "none";
-  const nextId = obstacles.scheduler?.peekPattern(encounters.difficultyStage)?.id ?? "none";
+  const section = runController.activeSwimmerSection;
+  const nextId = section?.scheduler?.peekPattern(null, { tierTuning: section.tier })?.id ??
+    obstacles.scheduler?.peekPattern((section?.tierId ?? 1) - 1)?.id ??
+    "none";
   ctx.fillStyle = "#ffffff";
-  ctx.fillText(`stage ${encounters.difficultyStage} active ${activeId} next ${nextId}`, CONFIG.SURF_BOUNDS.left, CONFIG.SURF_BOUNDS.top - 18);
+  ctx.fillText(`tier ${section?.tierId ?? 1} active ${activeId} next ${nextId}`, CONFIG.SURF_BOUNDS.left, CONFIG.SURF_BOUNDS.top - 18);
   ctx.restore();
 }
 

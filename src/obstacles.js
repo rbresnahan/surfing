@@ -4,7 +4,7 @@ import { DODGE_OBSTACLE_TYPES, getDodgeObstacleType, selectDodgeObstacleType } f
 import { obstacleRowCenter, isValidObstacleRow, nearestObstacleRow } from "./rowGeometry.js";
 import { instantiatePattern, PATTERN_BY_ID } from "./obstaclePatterns.js";
 import { validateObstacleTimeline } from "./patternValidator.js";
-import { PATTERN_SCHEDULE, stageTuning } from "./obstacleTuning.js";
+import { PATTERN_SCHEDULE, stageTuning, swimmerTier } from "./obstacleTuning.js";
 
 export function obstacleSpeedForTime(seconds) {
   const t = Math.max(0, Math.min(1, seconds / CONFIG.DIFFICULTY_RAMP_SECONDS));
@@ -49,13 +49,16 @@ export function createObstacleEvent({
   random = () => 0,
   validator = isEventFair,
   pattern = null,
-  difficultyStage = 0
+  difficultyStage = 0,
+  difficultyTier = null,
+  tierTuning = null
 }) {
-  const baseSpeed = stageTuning(difficultyStage).speed;
+  const tuning = resolveTuning({ difficultyStage, difficultyTier, tierTuning });
+  const baseSpeed = tuning.speed;
   const spawnX = CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING;
 
   for (let attempt = 0; attempt < CONFIG.HEAD_SPAWN_PLACEMENT_RETRIES; attempt += 1) {
-    const template = pattern ?? PATTERN_BY_ID[stageTuning(difficultyStage).schedule[attempt % stageTuning(difficultyStage).schedule.length]];
+    const template = pattern ?? PATTERN_BY_ID[tuning.schedule[attempt % tuning.schedule.length]];
     const instance = instantiatePattern(template);
     const speed = baseSpeed * instance.speedMultiplier;
     const candidate = createPatternEvent(instance, spawnX, speed);
@@ -133,6 +136,13 @@ export class ObstacleManager {
   update(dt, elapsed, surferY, options = {}) {
     const pauseSpawns = options.pauseSpawns === true;
     const difficultyStage = options.difficultyStage ?? 0;
+    const swimmerSection = options.swimmerSection ?? null;
+    const tuning = resolveTuning({
+      difficultyStage,
+      difficultyTier: options.difficultyTier,
+      tierTuning: options.tierTuning ?? swimmerSection?.tier
+    });
+    const scheduler = options.scheduler ?? swimmerSection?.scheduler ?? this.scheduler;
     this.recordSpawnSuppression(pauseSpawns, elapsed, options.pauseOwner ?? null);
     const encounterDodged = this.updateEncounterObstacles(dt, elapsed);
     const normalEventCountAtStart = this.activeEvents.length;
@@ -167,8 +177,10 @@ export class ObstacleManager {
     completedNormalEvent = completedNormalEvents.length > 0;
     this.activeEvents = this.activeEvents.filter((event) => event.heads.some((head) => !head.resolved));
     if (completedNormalEvent) {
-      this.spawnTimer = stageTuning(difficultyStage).spawnDelaySeconds;
+      this.spawnTimer = tuning.spawnDelaySeconds;
       for (const event of completedNormalEvents) {
+        options.onNormalEventResolved?.(event);
+        swimmerSection?.recordPatternCompleted?.(event, elapsed);
         if (!event.collided) {
           options.onNormalEventCompleted?.(event);
         }
@@ -180,15 +192,19 @@ export class ObstacleManager {
     }
 
     if (!pauseSpawns && !hadNormalEventsAtStart && this.spawnTimer <= 0) {
-      const event = this.scheduler.nextEvent({
+      const event = scheduler.nextEvent({
         difficultyStage,
+        difficultyTier: options.difficultyTier,
+        tierTuning: tuning,
         surferY,
         activeHeads: options.activeHeads ?? this.activeHeads()
       });
       if (event) {
+        swimmerSection?.recordPatternSpawned?.(event, elapsed);
         this.activeEvents.push(event);
         this.recordNormalEventCreated(event, elapsed);
-        this.spawnTimer = stageTuning(difficultyStage).spawnDelaySeconds;
+        options.onNormalEventCreated?.(event);
+        this.spawnTimer = tuning.spawnDelaySeconds;
       } else {
         this.spawnTimer = 0.08;
       }
@@ -367,6 +383,10 @@ export class ObstacleManager {
     return this.encounterObstacles.filter((obstacle) => obstacle.source === source).length;
   }
 
+  countNormalEventsBySection(sectionId) {
+    return this.activeEvents.filter((event) => event.sectionId === sectionId).length;
+  }
+
   recordSpawnSuppression(pauseSpawns, elapsed, owner) {
     if (!this.diagnostics?.enabled || pauseSpawns === this.lastPauseSpawns) return;
     this.diagnostics.emit(pauseSpawns ? "normal_spawn.suppressed" : "normal_spawn.restored", {
@@ -384,7 +404,7 @@ export class ObstacleManager {
         elapsedSeconds: elapsed,
         objectId,
         objectType: "normal-obstacle",
-        owner: "normal-spawn",
+        owner: head.diagnosticsOwner ?? event.sectionId ?? "normal-spawn",
         source: "normal-spawn",
         assetKey: head.assetKey,
         row: head.row,
@@ -523,7 +543,9 @@ export function rowIsReleased(row, activeHeads, stageConfig = stageTuning(0)) {
 }
 
 export class DeterministicObstacleScheduler {
-  constructor() {
+  constructor({ tier = null, patternIds = null } = {}) {
+    this.tier = tier;
+    this.patternIds = patternIds ? [...patternIds] : null;
     this.reset();
   }
 
@@ -531,31 +553,51 @@ export class DeterministicObstacleScheduler {
     this.indices = new Map();
   }
 
-  nextPattern(stage) {
-    const config = stageTuning(stage);
+  nextPattern(stage = null, options = {}) {
+    const config = resolveTuning({
+      difficultyStage: stage ?? 0,
+      difficultyTier: options.difficultyTier,
+      tierTuning: options.tierTuning ?? this.tier
+    });
+    const schedule = options.patternIds ?? this.patternIds ?? config.schedule;
     const index = this.indices.get(config.id) ?? 0;
-    const patternId = config.schedule[index % config.schedule.length];
+    const patternId = schedule[index % schedule.length];
     this.indices.set(config.id, index + 1);
     return PATTERN_BY_ID[patternId];
   }
 
-  peekPattern(stage) {
-    const config = stageTuning(stage);
+  peekPattern(stage = null, options = {}) {
+    const config = resolveTuning({
+      difficultyStage: stage ?? 0,
+      difficultyTier: options.difficultyTier,
+      tierTuning: options.tierTuning ?? this.tier
+    });
+    const schedule = options.patternIds ?? this.patternIds ?? config.schedule;
     const index = this.indices.get(config.id) ?? 0;
-    return PATTERN_BY_ID[config.schedule[index % config.schedule.length]];
+    return PATTERN_BY_ID[schedule[index % schedule.length]];
   }
 
-  nextEvent({ difficultyStage, surferY, activeHeads }) {
-    const config = stageTuning(difficultyStage);
-    const attempts = config.schedule.length;
+  nextEvent({ difficultyStage = 0, difficultyTier = null, tierTuning = null, surferY, activeHeads }) {
+    const config = resolveTuning({
+      difficultyStage,
+      difficultyTier,
+      tierTuning: tierTuning ?? this.tier
+    });
+    const schedule = this.patternIds ?? config.schedule;
+    const attempts = schedule.length;
     for (let attempt = 0; attempt < attempts; attempt += 1) {
-      const pattern = this.nextPattern(difficultyStage);
+      const pattern = this.nextPattern(difficultyStage, {
+        difficultyTier,
+        tierTuning: config,
+        patternIds: schedule
+      });
       if (!pattern || !patternRowsAvailable(pattern, activeHeads, config)) continue;
       const event = createObstacleEvent({
         surferY,
         activeHeads,
         pattern,
-        difficultyStage
+        difficultyStage,
+        tierTuning: config
       });
       if (event) return event;
     }
@@ -566,6 +608,12 @@ export class DeterministicObstacleScheduler {
 function patternRowsAvailable(pattern, activeHeads, stageConfig) {
   const rows = [...new Set(pattern.obstacles.map((obstacle) => obstacle.row))];
   return rows.every((row) => rowIsReleased(row, activeHeads, stageConfig));
+}
+
+function resolveTuning({ difficultyStage = 0, difficultyTier = null, tierTuning = null } = {}) {
+  if (tierTuning) return tierTuning;
+  if (difficultyTier !== null && difficultyTier !== undefined) return swimmerTier(difficultyTier);
+  return stageTuning(difficultyStage);
 }
 
 function updateEventThreat(event) {

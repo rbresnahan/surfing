@@ -1,4 +1,5 @@
 import { CONFIG, VERSION } from "./config.js";
+import { SWIMMER_TIERS } from "./obstacleTuning.js";
 
 export const DIAGNOSTIC_SCHEMA_VERSION = "surf-run-diagnostics-v1";
 export const DIAGNOSTIC_CHANNEL_NAME = "surf-run-diagnostics";
@@ -209,7 +210,8 @@ export function diagnosticsConfigSnapshot(config = CONFIG) {
     antiCampTelegraphSeconds: config.ANTI_CAMP_TELEGRAPH_SECONDS,
     scoreDodgeValue: config.SCORE_DODGE_VALUE,
     scoreTimeMultiplier: config.SCORE_TIME_MULTIPLIER,
-    encounterSequence: config.ENCOUNTER_SEQUENCE
+    encounterSequence: config.ENCOUNTER_SEQUENCE,
+    swimmerTiers: SWIMMER_TIERS
   };
 }
 

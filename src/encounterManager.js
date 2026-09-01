@@ -1,9 +1,10 @@
 import { CONFIG } from "./config.js";
 
 export class EncounterManager {
-  constructor({ diagnostics = null, debugEncounterFactory = null } = {}) {
+  constructor({ diagnostics = null, debugEncounterFactory = null, onEncounterCompleted = null } = {}) {
     this.diagnostics = diagnostics;
     this.debugEncounterFactory = debugEncounterFactory;
+    this.onEncounterCompleted = onEncounterCompleted;
     this.registeredEncounters = [];
     this.registrationKeys = new WeakMap();
     this.reset();
@@ -173,21 +174,19 @@ export class EncounterManager {
       encounterType: encounter.id,
       owner: occurrenceId
     });
-    this.advanceDifficultyForEncounter(encounter);
     this.recordCleanupStarted(encounter, gameState.elapsedSeconds ?? 0);
     encounter.cleanup(gameState);
     this.recordCleanupFinished(encounter, gameState.elapsedSeconds ?? 0, gameState);
     this.activeEncounter = null;
     this.activePhase = null;
-    if (!this.activateHandoffSuccessor(encounter, handoff, gameState)) {
+    const handoffActivated = this.activateHandoffSuccessor(encounter, handoff, gameState);
+    this.onEncounterCompleted?.(encounter, gameState, {
+      handoffActivated,
+      registrationKey: this.registrationKey(encounter),
+      handoff
+    });
+    if (!handoffActivated) {
       this.startPostEncounterGrace(encounter, occurrenceId, gameState);
-    }
-  }
-
-  advanceDifficultyForEncounter(encounter) {
-    const nextStage = encounter.difficultyStageOnComplete;
-    if (Number.isInteger(nextStage) && this.difficultyStage < nextStage) {
-      this.difficultyStage = nextStage;
     }
   }
 

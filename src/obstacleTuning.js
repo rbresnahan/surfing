@@ -1,6 +1,7 @@
-export const DIFFICULTY_STAGES = [
-  {
-    id: 0,
+export const SWIMMER_TIERS = {
+  1: {
+    id: 1,
+    legacyStage: 0,
     name: "opening",
     rowRelease: "fade",
     releaseProgress: 1,
@@ -16,8 +17,9 @@ export const DIFFICULTY_STAGES = [
       "opening-single-center"
     ]
   },
-  {
-    id: 1,
+  2: {
+    id: 2,
+    legacyStage: 1,
     name: "first-clear",
     rowRelease: "progress",
     releaseProgress: 0.6,
@@ -32,8 +34,9 @@ export const DIFFICULTY_STAGES = [
       "stage1-diagonal"
     ]
   },
-  {
-    id: 2,
+  3: {
+    id: 3,
+    legacyStage: 2,
     name: "cooler-clear",
     rowRelease: "progress",
     releaseProgress: 0.5,
@@ -48,7 +51,13 @@ export const DIFFICULTY_STAGES = [
       "stage2-long-weave"
     ]
   }
-];
+};
+
+export const DIFFICULTY_STAGES = Object.values(SWIMMER_TIERS).map((tier) => ({
+  ...tier,
+  id: tier.legacyStage,
+  tier: tier.id
+}));
 
 export const PATTERN_SCHEDULE = DIFFICULTY_STAGES.flatMap((stage) =>
   stage.schedule.map((patternId, index) => ({
@@ -70,6 +79,18 @@ export const DEBUG_TUNING = {
   startStage: null,
   reducedSpeedMultiplier: 1
 };
+
+export function swimmerTier(tierId) {
+  const tier = SWIMMER_TIERS[Math.floor(tierId)];
+  if (!tier) {
+    throw new Error(`Unknown swimmer tier: ${tierId}`);
+  }
+  return tier;
+}
+
+export function tierForStage(stage) {
+  return stageTuning(stage).tier;
+}
 
 export function stageTuning(stage) {
   return DIFFICULTY_STAGES[Math.max(0, Math.min(DIFFICULTY_STAGES.length - 1, Math.floor(stage)))] ?? DIFFICULTY_STAGES[0];

@@ -1,10 +1,10 @@
-export const VERSION = "v0.7.0";
+export const VERSION = "v0.8.0";
 
 const SURFER_DISPLAY_HEIGHT = 140;
 const SURFER_DISPLAY_WIDTH = 1199 * (SURFER_DISPLAY_HEIGHT / 1312);
 
 export const CONFIG = {
-  DEBUG: true,
+  DEBUG: false,
   DEVELOPER_CONTROLS: true,
   DEBUG_START_STAGE: null,
   DEBUG_REDUCED_SPEED_MULTIPLIER: 1,
@@ -138,7 +138,7 @@ export const CONFIG = {
   WIPEOUT_SECONDS: 1,
   SCORE_TIME_MULTIPLIER: 100,
   SCORE_DODGE_VALUE: 500,
-  STORAGE_KEY: "surf-game-v0.7.0-records"
+  STORAGE_KEY: "surf-game-v0.8.0-records"
 };
 
 CONFIG.ENCOUNTER_SEQUENCE = [

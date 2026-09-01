@@ -4,6 +4,7 @@ import { CONFIG, encounterConfig } from "../src/config.js";
 import { DiagnosticsSink } from "../src/diagnostics.js";
 import { EncounterManager } from "../src/encounterManager.js";
 import { createEncounterById, encounterCatalog, registerConfiguredEncounters } from "../src/encounterRegistry.js";
+import { RunController } from "../src/runController.js";
 
 test("manager starts an eligible encounter through the lifecycle contract", () => {
   const manager = new EncounterManager();
@@ -30,8 +31,31 @@ test("manager updates and cleans up a completed encounter", () => {
   assert.equal(manager.activeEncounter, null);
 });
 
-test("difficulty advances only after successful encounter completion", () => {
+test("encounter completion notifies the run owner without directly advancing swimmer difficulty", () => {
+  const completed = [];
+  const manager = new EncounterManager({
+    onEncounterCompleted: (encounter) => completed.push(encounter.id)
+  });
+  const fisherman = fakeEncounter({
+    id: "angry-fisherman",
+    canStart: () => true,
+    completeAfterUpdate: true,
+    difficultyStageOnComplete: 1
+  });
+
+  assert.equal(manager.difficultyStage, 0);
+  manager.register(fisherman);
+  manager.update(0.016, gameStateAt(CONFIG.FIRST_ENCOUNTER_TIME_MS));
+  assert.equal(manager.difficultyStage, 0);
+  manager.update(0.016, gameStateAt(CONFIG.FIRST_ENCOUNTER_TIME_MS + 16));
+
+  assert.deepEqual(completed, ["angry-fisherman"]);
+  assert.equal(manager.difficultyStage, 0);
+});
+
+test("run controller advances the compatibility swimmer tier after encounter completion", () => {
   const manager = new EncounterManager();
+  const runController = new RunController({ encounterManager: manager });
   const fisherman = fakeEncounter({
     id: "angry-fisherman",
     canStart: () => true,
@@ -47,16 +71,18 @@ test("difficulty advances only after successful encounter completion", () => {
   });
   manager.register(fisherman);
   manager.register(cooler);
+  runController.reset();
 
   assert.equal(manager.difficultyStage, 0);
-  manager.update(0.016, gameStateAt(CONFIG.FIRST_ENCOUNTER_TIME_MS));
+  runController.update(0.016, gameStateAt(CONFIG.FIRST_ENCOUNTER_TIME_MS));
   assert.equal(manager.difficultyStage, 0);
-  manager.update(0.016, gameStateAt(CONFIG.FIRST_ENCOUNTER_TIME_MS + 16));
+  runController.update(0.016, gameStateAt(CONFIG.FIRST_ENCOUNTER_TIME_MS + 16));
   assert.equal(manager.difficultyStage, 1);
 
-  manager.update(0.016, gameStateAt(CONFIG.COOLER_ENCOUNTER_TIME_MS));
-  manager.update(0.016, gameStateAt(CONFIG.COOLER_ENCOUNTER_TIME_MS + 16));
+  runController.update(0.016, gameStateAt(CONFIG.COOLER_ENCOUNTER_TIME_MS));
+  runController.update(0.016, gameStateAt(CONFIG.COOLER_ENCOUNTER_TIME_MS + 16));
   assert.equal(manager.difficultyStage, 2);
+  assert.equal(runController.activeSwimmerSection.tierId, 3);
 });
 
 test("configured rowboat encounters activate in their configured order", () => {
@@ -91,7 +117,7 @@ test("configured rowboat encounters activate in their configured order", () => {
 
   assert.deepEqual(started, ["angry-fisherman", "angry-fisherman-cooler"]);
   assert.equal(manager.activeEncounter, second);
-  assert.equal(manager.difficultyStage, 1);
+  assert.equal(manager.difficultyStage, 0);
 });
 
 test("configured encounter sequence contains the cooler toss schedule", () => {
