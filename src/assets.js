@@ -17,7 +17,8 @@ export const FISHERMAN_FILES = {
   angryFishermanToss: "angry-fisherman-toss.png",
   angryFishermanLoss: "angry-fisherman-loss.png",
   angryFishermanCooler: "angry-fisherman-cooler.png",
-  angryFishermanCoolerDump: "angry-fisherman-cooler-dump.png"
+  angryFishermanCoolerDump: "angry-fisherman-cooler-dump.png",
+  angryFishermanCoolerToss: "angry-fisherman-cooler-toss.png"
 };
 
 export const THROWABLE_FILES = {
@@ -46,6 +47,11 @@ export const ATTACK_FISH_FILES = {
   attackFishOrangeB: "attack-fish-orange-b.png"
 };
 
+export const COOLER_TOSS_FILES = {
+  attackCooler: "attack-cooler.png",
+  attackCoolerWater: "attack-cooler-water.png"
+};
+
 export const WAVE_FRAME_FILES = [
   "wave-01.png",
   "wave-02.png",
@@ -63,7 +69,9 @@ export async function loadAssets() {
     angryFishermanLoss,
     angryFishermanCooler,
     angryFishermanCoolerDump,
+    angryFishermanCoolerToss,
     throwables,
+    coolerToss,
     attackFish,
     backgroundMusic,
     rowboatFinaleMusic
@@ -76,7 +84,9 @@ export async function loadAssets() {
     loadRequiredImage(`${ASSET_BASE}${FISHERMAN_FILES.angryFishermanLoss}`),
     loadRequiredImage(`${ASSET_BASE}${FISHERMAN_FILES.angryFishermanCooler}`),
     loadRequiredImage(`${ASSET_BASE}${FISHERMAN_FILES.angryFishermanCoolerDump}`),
+    loadRequiredImage(`${ASSET_BASE}${FISHERMAN_FILES.angryFishermanCoolerToss}`),
     loadThrowables(),
+    loadCoolerTossAssets(),
     loadAttackFish(),
     loadAudio(`${AUDIO_BASE}${AUDIO_FILES.backgroundMusic}`),
     loadAudio(`${AUDIO_BASE}${AUDIO_FILES.rowboatFinaleMusic}`)
@@ -91,7 +101,9 @@ export async function loadAssets() {
     angryFishermanLoss,
     angryFishermanCooler,
     angryFishermanCoolerDump,
+    angryFishermanCoolerToss,
     throwables,
+    coolerToss,
     attackFish,
     backgroundMusic,
     rowboatFinaleMusic,
@@ -132,6 +144,17 @@ async function loadSurferStates() {
 async function loadThrowables() {
   const entries = await Promise.all(
     Object.entries(THROWABLE_FILES).map(async ([key, file]) => [
+      key,
+      await loadRequiredImage(`${ASSET_BASE}${file}`)
+    ])
+  );
+
+  return Object.fromEntries(entries);
+}
+
+async function loadCoolerTossAssets() {
+  const entries = await Promise.all(
+    Object.entries(COOLER_TOSS_FILES).map(async ([key, file]) => [
       key,
       await loadRequiredImage(`${ASSET_BASE}${file}`)
     ])

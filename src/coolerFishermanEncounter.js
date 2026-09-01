@@ -34,16 +34,19 @@ const COOLER_OPENING_OFFSET_X = -80;
 const COOLER_RELEASE_POINT_OFFSET_Y = 0;
 
 export class CoolerFishermanEncounter {
-  constructor(random = () => 0) {
+  constructor(random = () => 0, occurrenceConfig = null) {
     this.id = "angry-fisherman-cooler";
-    const config = encounterConfig(this.id);
+    const config = occurrenceConfig ?? encounterConfig(this.id);
     this.type = "scripted";
     this.exclusive = true;
     this.pauseNormalSpawns = true;
     this.startTimeMs = config?.startTimeMs ?? CONFIG.COOLER_ENCOUNTER_TIME_MS;
     this.difficultyStageOnComplete = config?.difficultyStageOnComplete ?? null;
-    this.postEncounterGraceSeconds = config?.postEncounterGraceSeconds ?? CONFIG.COOLER_POST_ENCOUNTER_GRACE_SECONDS;
-    this.random = random;
+    this.handoffToNext = config?.handoffToNext === true;
+    this.immediateSuccessorId = config?.immediateSuccessorId ?? null;
+    this.postEncounterGraceSeconds = config?.postEncounterGraceSeconds ??
+      (this.handoffToNext ? 0 : CONFIG.COOLER_POST_ENCOUNTER_GRACE_SECONDS);
+    this.random = random ?? (() => 0);
     this.resetInternal();
   }
 
@@ -111,7 +114,7 @@ export class CoolerFishermanEncounter {
         this.releaseTimer = 0;
 
         if (this.completedWaves >= WAVE_COUNT) {
-          this.timer = CONFIG.COOLER_FINAL_PRE_EXIT_PAUSE_SECONDS;
+          this.timer = this.handoffToNext ? 0 : CONFIG.COOLER_FINAL_PRE_EXIT_PAUSE_SECONDS;
           this.phase = COOLER_PHASES.BETWEEN_WAVES;
         } else {
           this.timer = CONFIG.COOLER_BETWEEN_WAVE_PAUSE_SECONDS;
@@ -127,7 +130,7 @@ export class CoolerFishermanEncounter {
       if (this.timer > 0) return;
 
       if (this.completedWaves >= WAVE_COUNT) {
-        this.phase = COOLER_PHASES.EXITING;
+        this.phase = this.handoffToNext ? COOLER_PHASES.COMPLETE : COOLER_PHASES.EXITING;
       } else {
         this.phase = COOLER_PHASES.POSITIONING;
       }
@@ -167,6 +170,18 @@ export class CoolerFishermanEncounter {
     const cleanupState = gameState ?? this.lastGameState;
     cleanupState?.obstacles?.clearEncounterObstaclesBySource?.(this.id);
     this.resetInternal();
+  }
+
+  createHandoffState() {
+    if (!this.handoffToNext || !this.immediateSuccessorId) return null;
+    return {
+      targetEncounterId: this.immediateSuccessorId,
+      boat: {
+        x: this.x,
+        y: this.y,
+        width: this.boatWidth
+      }
+    };
   }
 
   projectileHitboxes() {

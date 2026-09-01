@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { access, readdir } from "node:fs/promises";
 import { DODGE_OBSTACLE_TYPES } from "../src/dodgeObstacles.js";
-import { ATTACK_FISH_FILES, loadAssets, THROWABLE_FILES, WAVE_FRAME_FILES } from "../src/assets.js";
+import { ATTACK_FISH_FILES, COOLER_TOSS_FILES, FISHERMAN_FILES, loadAssets, THROWABLE_FILES, WAVE_FRAME_FILES } from "../src/assets.js";
 
 test("noodle-man dodge asset resolves with exact filename and case", async () => {
   const assetDir = new URL("../assets/", import.meta.url);
@@ -131,8 +131,41 @@ test("asset loader preloads cooler encounter artwork", async () => {
 
     assert.ok(assets.angryFishermanCooler);
     assert.ok(assets.angryFishermanCoolerDump);
+    assert.ok(assets.angryFishermanCoolerToss);
     assert.equal(loadedSources.includes("assets/angry-fisherman-cooler.png"), true);
     assert.equal(loadedSources.includes("assets/angry-fisherman-cooler-dump.png"), true);
+    assert.equal(loadedSources.includes("assets/angry-fisherman-cooler-toss.png"), true);
+  } finally {
+    globalThis.Image = originalImage;
+    globalThis.Audio = originalAudio;
+  }
+});
+
+test("asset loader preloads cooler toss attack artwork", async () => {
+  const originalImage = globalThis.Image;
+  const originalAudio = globalThis.Audio;
+  const loadedSources = [];
+
+  globalThis.Image = class MockImage {
+    set src(value) {
+      loadedSources.push(value);
+      queueMicrotask(() => this.onload?.());
+    }
+  };
+  globalThis.Audio = undefined;
+
+  try {
+    const assets = await loadAssets();
+
+    assert.deepEqual(FISHERMAN_FILES.angryFishermanCoolerToss, "angry-fisherman-cooler-toss.png");
+    assert.deepEqual(COOLER_TOSS_FILES, {
+      attackCooler: "attack-cooler.png",
+      attackCoolerWater: "attack-cooler-water.png"
+    });
+    assert.ok(assets.coolerToss.attackCooler);
+    assert.ok(assets.coolerToss.attackCoolerWater);
+    assert.equal(loadedSources.includes("assets/attack-cooler.png"), true);
+    assert.equal(loadedSources.includes("assets/attack-cooler-water.png"), true);
   } finally {
     globalThis.Image = originalImage;
     globalThis.Audio = originalAudio;

@@ -1,11 +1,13 @@
 import { CONFIG } from "./config.js";
 import { AngryFishermanEncounter } from "./angryFishermanEncounter.js";
 import { CoolerFishermanEncounter } from "./coolerFishermanEncounter.js";
+import { AngryFishermanCoolerTossEncounter } from "./angryFishermanCoolerTossEncounter.js";
 import { EncounterManager } from "./encounterManager.js";
 
 export const ENCOUNTER_FACTORIES = {
-  "angry-fisherman": () => new AngryFishermanEncounter(),
-  "angry-fisherman-cooler": () => new CoolerFishermanEncounter()
+  "angry-fisherman": (entry) => new AngryFishermanEncounter(undefined, entry),
+  "angry-fisherman-cooler": (entry) => new CoolerFishermanEncounter(undefined, entry),
+  "angry-fisherman-cooler-toss": (entry) => new AngryFishermanCoolerTossEncounter(undefined, entry)
 };
 
 export function registerConfiguredEncounters(
@@ -39,8 +41,14 @@ export function encounterCatalog(
   factories = ENCOUNTER_FACTORIES,
   sequence = CONFIG.ENCOUNTER_SEQUENCE
 ) {
+  const seen = new Set();
   return sequence
-    .filter((entry) => typeof factories[entry.id] === "function")
+    .filter((entry) => {
+      if (typeof factories[entry.id] !== "function") return false;
+      if (seen.has(entry.id)) return false;
+      seen.add(entry.id);
+      return true;
+    })
     .map((entry) => ({
       id: entry.id,
       label: labelForEncounterId(entry.id)

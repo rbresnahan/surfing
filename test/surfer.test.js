@@ -143,7 +143,8 @@ test("surfer playfield uses the configured upper-left boundary anchors", () => {
     { x: 292, y: 205 },
     { x: 401, y: 116 },
     { x: 588, y: 116 },
-    { x: 650, y: 104 }
+    { x: 650, y: 104 },
+    { x: 710, y: 104 }
   ]);
 });
 

@@ -35,6 +35,7 @@ export class EncounterManager {
     this.activePhase = null;
     this.lastElapsedSeconds = 0;
     this.lastGraceOwner = null;
+    this.pendingHandoff = null;
     this.scheduleRegisteredEncounters();
   }
 
@@ -165,6 +166,7 @@ export class EncounterManager {
       this.completedEncounterIds.add(this.registrationKey(encounter));
     }
     const occurrenceId = this.diagnostics?.occurrenceId(encounter);
+    const handoff = this.createCompletionHandoff(encounter);
     this.diagnostics?.emit("encounter.completed", {
       elapsedSeconds: gameState.elapsedSeconds ?? 0,
       occurrenceId,
@@ -172,22 +174,14 @@ export class EncounterManager {
       owner: occurrenceId
     });
     this.advanceDifficultyForEncounter(encounter);
-    this.postEncounterGraceTimer = encounter.postEncounterGraceSeconds ?? 0;
-    if (this.postEncounterGraceTimer > 0) {
-      this.lastGraceOwner = { occurrenceId, encounterType: encounter.id };
-      this.diagnostics?.emit("encounter.grace_started", {
-        elapsedSeconds: gameState.elapsedSeconds ?? 0,
-        occurrenceId,
-        encounterType: encounter.id,
-        owner: occurrenceId,
-        durationSeconds: this.postEncounterGraceTimer
-      });
-    }
     this.recordCleanupStarted(encounter, gameState.elapsedSeconds ?? 0);
     encounter.cleanup(gameState);
     this.recordCleanupFinished(encounter, gameState.elapsedSeconds ?? 0, gameState);
     this.activeEncounter = null;
     this.activePhase = null;
+    if (!this.activateHandoffSuccessor(encounter, handoff, gameState)) {
+      this.startPostEncounterGrace(encounter, occurrenceId, gameState);
+    }
   }
 
   advanceDifficultyForEncounter(encounter) {
@@ -203,6 +197,48 @@ export class EncounterManager {
 
   registrationKey(encounter) {
     return this.registrationKeys.get(encounter) ?? encounter.id;
+  }
+
+  createCompletionHandoff(encounter) {
+    const handoff = encounter.createHandoffState?.() ?? null;
+    if (!handoff || typeof handoff !== "object") return null;
+    if (typeof handoff.targetEncounterId !== "string") return null;
+    return handoff;
+  }
+
+  activateHandoffSuccessor(previousEncounter, handoff, gameState) {
+    if (!handoff) return false;
+    const successor = this.nextRegisteredEncounter(previousEncounter);
+    if (!successor || successor.id !== handoff.targetEncounterId) return false;
+    if (this.completedEncounterIds.has(this.registrationKey(successor))) return false;
+    if (successor.exclusive && this.hasExclusiveEncounter()) return false;
+    if (successor.canStartWithHandoff?.(handoff, gameState) === false) return false;
+
+    this.pendingHandoff = handoff;
+    this.activateEncounter(successor, {
+      ...gameState,
+      encounterHandoff: handoff
+    }, { source: "handoff" });
+    this.pendingHandoff = null;
+    return true;
+  }
+
+  nextRegisteredEncounter(encounter) {
+    const index = this.registeredEncounters.indexOf(encounter);
+    return index >= 0 ? this.registeredEncounters[index + 1] ?? null : null;
+  }
+
+  startPostEncounterGrace(encounter, occurrenceId, gameState) {
+    this.postEncounterGraceTimer = encounter.postEncounterGraceSeconds ?? 0;
+    if (this.postEncounterGraceTimer <= 0) return;
+    this.lastGraceOwner = { occurrenceId, encounterType: encounter.id };
+    this.diagnostics?.emit("encounter.grace_started", {
+      elapsedSeconds: gameState.elapsedSeconds ?? 0,
+      occurrenceId,
+      encounterType: encounter.id,
+      owner: occurrenceId,
+      durationSeconds: this.postEncounterGraceTimer
+    });
   }
 
   scheduleRegisteredEncounters() {

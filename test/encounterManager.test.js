@@ -94,6 +94,30 @@ test("configured rowboat encounters activate in their configured order", () => {
   assert.equal(manager.difficultyStage, 1);
 });
 
+test("configured encounter sequence contains the cooler toss schedule", () => {
+  assert.deepEqual(CONFIG.ENCOUNTER_SEQUENCE.map((entry) => entry.id), [
+    "angry-fisherman",
+    "angry-fisherman-cooler",
+    "angry-fisherman-cooler",
+    "angry-fisherman-cooler-toss"
+  ]);
+  assert.deepEqual(CONFIG.ENCOUNTER_SEQUENCE.map((entry) => entry.startTimeMs ?? null), [
+    45000,
+    105000,
+    138000,
+    null
+  ]);
+  assert.deepEqual(CONFIG.ENCOUNTER_SEQUENCE.map((entry) => entry.difficultyStageOnComplete ?? null), [
+    1,
+    2,
+    2,
+    2
+  ]);
+  assert.equal(CONFIG.ENCOUNTER_SEQUENCE[1].postEncounterGraceSeconds, CONFIG.COOLER_POST_ENCOUNTER_GRACE_SECONDS);
+  assert.equal(CONFIG.ENCOUNTER_SEQUENCE[2].handoffToNext, true);
+  assert.equal(CONFIG.ENCOUNTER_SEQUENCE[2].immediateSuccessorId, "angry-fisherman-cooler-toss");
+});
+
 test("restart resets run-scoped difficulty and encounter state", () => {
   const manager = new EncounterManager();
   manager.difficultyStage = 2;
@@ -309,6 +333,82 @@ test("registered encounter factories support a minimal third encounter without m
 
   assert.equal(mockThird.started, 1);
   assert.equal(manager.activeEncounter, mockThird);
+});
+
+test("configured duplicate cooler occurrences keep their own start times", () => {
+  const created = [];
+  const manager = registerConfiguredEncounters(new EncounterManager(), {
+    "angry-fisherman-cooler": (entry) => {
+      const encounter = fakeEncounter({
+        id: entry.id,
+        type: "scripted",
+        startTimeMs: entry.startTimeMs,
+        canStart(state) {
+          return state.elapsedMs >= this.startTimeMs;
+        }
+      });
+      created.push(encounter);
+      return encounter;
+    }
+  }, [
+    { id: "angry-fisherman-cooler", startTimeMs: 105000 },
+    { id: "angry-fisherman-cooler", startTimeMs: 138000 }
+  ]);
+
+  assert.deepEqual(created.map((encounter) => encounter.startTimeMs), [105000, 138000]);
+
+  manager.update(0.016, gameStateAt(105000));
+
+  assert.equal(manager.activeEncounter, created[0]);
+});
+
+test("configured encounter catalog exposes one developer trigger per encounter type", () => {
+  const factories = {
+    "repeat": () => fakeEncounter({ id: "repeat" }),
+    "other": () => fakeEncounter({ id: "other" })
+  };
+
+  assert.deepEqual(encounterCatalog(factories, [
+    { id: "repeat", startTimeMs: 10 },
+    { id: "repeat", startTimeMs: 20 },
+    { id: "other", startTimeMs: 30 }
+  ]), [
+    { id: "repeat", label: "Repeat" },
+    { id: "other", label: "Other" }
+  ]);
+});
+
+test("manager immediately activates a configured handoff successor without grace", () => {
+  const manager = new EncounterManager();
+  const first = fakeEncounter({
+    id: "first",
+    type: "scripted",
+    canStart: () => true,
+    completeAfterUpdate: true,
+    postEncounterGraceSeconds: 1,
+    createHandoffState: () => ({
+      targetEncounterId: "second",
+      boat: { x: 810, y: 320, width: 210 }
+    })
+  });
+  const second = fakeEncounter({
+    id: "second",
+    type: "scripted",
+    canStart: () => false,
+    canStartWithHandoff: (handoff) => handoff.targetEncounterId === "second"
+  });
+  manager.register(first);
+  manager.register(second);
+
+  manager.update(0.016, gameStateAt(10));
+  manager.update(0.016, gameStateAt(26));
+
+  assert.equal(first.cleaned, 1);
+  assert.equal(second.started, 1);
+  assert.equal(second.receivedHandoff.boat.x, 810);
+  assert.equal(manager.activeEncounter, second);
+  assert.equal(manager.postEncounterGraceTimer, 0);
+  assert.equal(manager.shouldPauseNormalSpawns(), false);
 });
 
 test("same inputs produce the same encounter sequence", () => {
@@ -530,10 +630,14 @@ function fakeEncounter(options = {}) {
     started: 0,
     updated: 0,
     cleaned: 0,
+    receivedHandoff: null,
     complete: false,
     canStart: options.canStart ?? (() => false),
-    start() {
+    canStartWithHandoff: options.canStartWithHandoff,
+    createHandoffState: options.createHandoffState,
+    start(gameState = {}) {
       this.started += 1;
+      this.receivedHandoff = gameState.encounterHandoff ?? null;
       options.onStart?.(this);
     },
     update() {

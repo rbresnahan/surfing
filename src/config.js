@@ -1,4 +1,4 @@
-export const VERSION = "v0.6.1";
+export const VERSION = "v0.7.0";
 
 const SURFER_DISPLAY_HEIGHT = 140;
 const SURFER_DISPLAY_WIDTH = 1199 * (SURFER_DISPLAY_HEIGHT / 1312);
@@ -29,7 +29,7 @@ export const CONFIG = {
   SURFER_HITBOX_SCALE_Y: 0.64,
   SURF_BOUNDS: {
     left: 120,
-    right: 650,
+    right: 710,
     top: 185,
     bottom: 500
   },
@@ -40,7 +40,8 @@ export const CONFIG = {
     { x: 292, y: 205 },
     { x: 401, y: 116 },
     { x: 588, y: 116 },
-    { x: 650, y: 104 }
+    { x: 650, y: 104 },
+    { x: 710, y: 104 }
   ],
   OBSTACLE_ROW_COUNT: 6,
   DEBUG_OBSTACLE_ROWS: false,
@@ -95,7 +96,7 @@ export const CONFIG = {
   FIRST_ENCOUNTER_TIME_MS: 45000,
   FISHERMAN_ENTRY_SPEED: 170,
   FISHERMAN_EXIT_SPEED: 220,
-  FISHERMAN_STOP_X: 810,
+  FISHERMAN_STOP_X: 860,
   FISHERMAN_DISPLAY_WIDTH: 210,
   FISHERMAN_LANE_SPEED: 150,
   FISHERMAN_LANE_SNAP_DISTANCE: 6,
@@ -126,10 +127,18 @@ export const CONFIG = {
   COOLER_DROP_DURATION_SECONDS: 0.18,
   COOLER_DROP_DISTANCE_X: 74,
   COOLER_DROP_DISTANCE_Y: 34,
+  COOLER_TOSS_HOLD_SECONDS: 0.45,
+  COOLER_TOSS_WINDUP_SECONDS: 0.3,
+  COOLER_TOSS_POST_THROW_SECONDS: 0.35,
+  COOLER_TOSS_PROJECTILE_DURATION_SECONDS: 0.78,
+  COOLER_TOSS_ARC_HEIGHT: 82,
+  COOLER_TOSS_LANDING_ROW: 3,
+  COOLER_TOSS_ATTACK_COOLER_WIDTH: 96,
+  COOLER_TOSS_WATER_COOLER_WIDTH: 112,
   WIPEOUT_SECONDS: 1,
   SCORE_TIME_MULTIPLIER: 100,
   SCORE_DODGE_VALUE: 500,
-  STORAGE_KEY: "surf-game-v0.6.1-records"
+  STORAGE_KEY: "surf-game-v0.7.0-records"
 };
 
 CONFIG.ENCOUNTER_SEQUENCE = [
@@ -143,6 +152,17 @@ CONFIG.ENCOUNTER_SEQUENCE = [
     startTimeMs: CONFIG.COOLER_ENCOUNTER_TIME_MS,
     difficultyStageOnComplete: 2,
     postEncounterGraceSeconds: CONFIG.COOLER_POST_ENCOUNTER_GRACE_SECONDS
+  },
+  {
+    id: "angry-fisherman-cooler",
+    startTimeMs: 138000,
+    difficultyStageOnComplete: 2,
+    handoffToNext: true,
+    immediateSuccessorId: "angry-fisherman-cooler-toss"
+  },
+  {
+    id: "angry-fisherman-cooler-toss",
+    difficultyStageOnComplete: 2
   }
 ];
 

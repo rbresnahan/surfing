@@ -108,15 +108,15 @@ const WalletState = {
 };
 
 export class AngryFishermanEncounter {
-  constructor(random = () => 0) {
+  constructor(random = () => 0, occurrenceConfig = null) {
     this.id = "angry-fisherman";
-    const config = encounterConfig(this.id);
+    const config = occurrenceConfig ?? encounterConfig(this.id);
     this.type = "major";
     this.exclusive = true;
     this.pauseNormalSpawns = true;
     this.startTimeMs = config?.startTimeMs ?? CONFIG.FIRST_ENCOUNTER_TIME_MS;
     this.difficultyStageOnComplete = config?.difficultyStageOnComplete ?? null;
-    this.random = random;
+    this.random = random ?? (() => 0);
     this.resetInternal();
   }
 

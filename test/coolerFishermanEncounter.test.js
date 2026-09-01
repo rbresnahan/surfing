@@ -34,6 +34,29 @@ test("cooler encounter begins at 105 seconds and not earlier", () => {
   assert.equal(encounter.canStart(gameStateAt(105000)), true);
 });
 
+test("cooler occurrence config overrides the generic id lookup", () => {
+  const first = new CoolerFishermanEncounter(() => 0, {
+    id: "angry-fisherman-cooler",
+    startTimeMs: 105000,
+    difficultyStageOnComplete: 2,
+    postEncounterGraceSeconds: 0.9
+  });
+  const second = new CoolerFishermanEncounter(() => 0, {
+    id: "angry-fisherman-cooler",
+    startTimeMs: 138000,
+    difficultyStageOnComplete: 2,
+    handoffToNext: true,
+    immediateSuccessorId: "angry-fisherman-cooler-toss"
+  });
+
+  assert.equal(first.startTimeMs, 105000);
+  assert.equal(first.postEncounterGraceSeconds, CONFIG.COOLER_POST_ENCOUNTER_GRACE_SECONDS);
+  assert.equal(first.handoffToNext, false);
+  assert.equal(second.startTimeMs, 138000);
+  assert.equal(second.postEncounterGraceSeconds, 0);
+  assert.equal(second.handoffToNext, true);
+});
+
 test("cooler boat enters from the right and stops only after fully visible", () => {
   const encounter = new CoolerFishermanEncounter(() => 0);
   encounter.start();
@@ -113,6 +136,26 @@ test("cooler encounter runs exactly three dump waves and exits right after wave 
   assert.equal(phasesSeen.has(COOLER_PHASES.DUMPING_WAVE), true);
   assert.equal(encounter.phase, COOLER_PHASES.COMPLETE);
   assert.ok(encounter.x - encounter.boatWidth / 2 > CONFIG.WIDTH);
+});
+
+test("handoff cooler completes at the boat position instead of exiting right", () => {
+  const encounter = new CoolerFishermanEncounter(() => 0, {
+    id: "angry-fisherman-cooler",
+    startTimeMs: 138000,
+    handoffToNext: true,
+    immediateSuccessorId: "angry-fisherman-cooler-toss"
+  });
+  const gameState = createGameState();
+
+  encounter.start();
+  runUntil(encounter, gameState, () => encounter.isComplete(), new Set());
+
+  const handoff = encounter.createHandoffState();
+  assert.equal(encounter.phase, COOLER_PHASES.COMPLETE);
+  assert.equal(handoff.targetEncounterId, "angry-fisherman-cooler-toss");
+  assert.equal(handoff.boat.x, encounter.x);
+  assert.equal(handoff.boat.y, encounter.y);
+  assert.ok(encounter.x - encounter.boatWidth / 2 <= CONFIG.WIDTH);
 });
 
 test("dump sprite is used only while releasing items and closed cooler sprite is used otherwise", () => {

@@ -447,7 +447,11 @@ function drawObstacle(ctx, image, obstacle) {
 function obstacleImage(assets, obstacle) {
   const fallback = assets.dodgeObstacles?.[DODGE_OBSTACLE_TYPES[0].assetKey];
   if (!obstacle.assetKey) return fallback;
-  return assets.dodgeObstacles?.[obstacle.assetKey] ?? assets.throwables?.[obstacle.assetKey] ?? assets[obstacle.assetKey] ?? fallback;
+  return assets.dodgeObstacles?.[obstacle.assetKey] ??
+    assets.throwables?.[obstacle.assetKey] ??
+    assets.coolerToss?.[obstacle.assetKey] ??
+    assets[obstacle.assetKey] ??
+    fallback;
 }
 
 export function createPatternEvent(pattern, spawnX, speed, random = () => 0) {
