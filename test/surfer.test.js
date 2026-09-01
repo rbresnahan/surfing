@@ -139,11 +139,11 @@ test("surfer playfield uses the configured upper-left boundary anchors", () => {
   assert.equal(CONFIG.SURFER_TOP_BOUNDARY, undefined);
   assert.deepEqual(CONFIG.SURFER_PLAYFIELD_BOUNDARY, [
     { x: 160, y: 500 },
-    { x: 180, y: 307 },
-    { x: 292, y: 217 },
-    { x: 401, y: 128 },
-    { x: 588, y: 128 },
-    { x: 650, y: 116 }
+    { x: 180, y: 295 },
+    { x: 292, y: 205 },
+    { x: 401, y: 116 },
+    { x: 588, y: 116 },
+    { x: 650, y: 104 }
   ]);
 });
 
@@ -164,11 +164,11 @@ test("surfer boundary interpolates along the main diagonal", () => {
 });
 
 test("surfer boundary keeps the authored horizontal section", () => {
-  assert.equal(getSurferBoundaryYAtX(midpoint(401, 588)), 128);
+  assert.equal(getSurferBoundaryYAtX(midpoint(401, 588)), 116);
 });
 
 test("surfer boundary rises slightly at the right edge", () => {
-  assert.equal(getSurferBoundaryYAtX(650), 116);
+  assert.equal(getSurferBoundaryYAtX(650), 104);
 });
 
 test("surfer cannot cross the diagonal top boundary", () => {
@@ -191,7 +191,7 @@ test("surfer cannot enter the whitecap-side area above the upper boundary", () =
 
   moveRepeatedly(surfer, 0, -1);
 
-  assert.ok(Math.min(...surferMovementFootprintAt(surfer.x, surfer.y).map((point) => point.y)) > 128);
+  assert.ok(Math.min(...surferMovementFootprintAt(surfer.x, surfer.y).map((point) => point.y)) > 116);
   assertMovementFootprintInsideSurferPlayfield(surfer.x, surfer.y);
 });
 
