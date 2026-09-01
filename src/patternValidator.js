@@ -1,5 +1,6 @@
 import { CONFIG } from "./config.js";
 import { centeredRect, rectsOverlap } from "./collision.js";
+import { materializeDodgeObstacleGeometry } from "./dodgeObstacles.js";
 import { obstacleRowCenter } from "./rowGeometry.js";
 import { patternHorizontalDuration } from "./obstaclePatterns.js";
 import { clampSurferCenterToPlayfield, isSurferPositionValid } from "./surferGeometry.js";
@@ -86,14 +87,21 @@ export function validateObstacleTimeline(obstacles, options = {}) {
 
 export function flattenPatterns(patterns, speed, config = CONFIG) {
   return patterns.flatMap(({ pattern, startTime = 0 }) =>
-    pattern.obstacles.map((obstacle) => ({
-      ...obstacle,
-      y: obstacle.y ?? obstacleRowCenter(obstacle.row, config),
-      x: obstacle.x ?? config.WIDTH + config.SPAWN_X_PADDING + (startTime + obstacle.timeOffset) * speed,
-      speed: speed * (pattern.speedMultiplier ?? 1),
-      timeOffset: startTime + obstacle.timeOffset
-    }))
+    pattern.obstacles.map((obstacle) => materializePatternObstacle(obstacle, pattern, startTime, speed, config))
   );
+}
+
+function materializePatternObstacle(obstacle, pattern, startTime, speed, config) {
+  const geometry = materializeDodgeObstacleGeometry(obstacle.typeId) ?? {};
+  return {
+    ...geometry,
+    ...obstacle,
+    obstacleTypeId: geometry.obstacleTypeId ?? obstacle.typeId ?? null,
+    y: obstacle.y ?? obstacleRowCenter(obstacle.row, config),
+    x: obstacle.x ?? config.WIDTH + config.SPAWN_X_PADDING + (startTime + obstacle.timeOffset) * speed,
+    speed: speed * (pattern.speedMultiplier ?? 1),
+    timeOffset: startTime + obstacle.timeOffset
+  };
 }
 
 function timelineDuration(obstacles, speed, config) {
@@ -125,8 +133,9 @@ function transitionIsClear(fromY, toY, fromT, toT, obstacles, shared) {
 function obstacleRectAtTime(obstacle, t, { config, padding }) {
   const obstacleSpeed = obstacle.speed ?? config.OBSTACLE_START_SPEED;
   const x = obstacle.x - obstacleSpeed * t;
-  const collisionWidth = obstacle.collisionWidth ?? config.HEAD_DISPLAY_WIDTH;
-  const collisionHeight = obstacle.collisionHeight ?? config.HEAD_DISPLAY_HEIGHT;
+  const collisionWidth = obstacle.collisionWidth ?? obstacle.width;
+  const collisionHeight = obstacle.collisionHeight ?? obstacle.height;
+  if (!Number.isFinite(collisionWidth) || !Number.isFinite(collisionHeight)) return null;
   const halfWidth = (collisionWidth * (obstacle.hitboxScaleX ?? obstacle.collisionScale ?? config.HEAD_HITBOX_SCALE_X)) / 2 + padding;
   const halfHeight = (collisionHeight * (obstacle.hitboxScaleY ?? obstacle.collisionScale ?? config.HEAD_HITBOX_SCALE_Y)) / 2 + padding;
   if (x + halfWidth < config.SURF_BOUNDS.left - 140 || x - halfWidth > config.WIDTH + config.SPAWN_X_PADDING + 160) {
@@ -152,6 +161,7 @@ function buildYSamples(config, yStep, playerX, initialY) {
 function cacheKey(patterns, speed, surferY, playerX, config) {
   return JSON.stringify({
     ids: patterns.map(({ pattern, startTime = 0 }) => [pattern.id, pattern.mirrored, startTime]),
+    types: patterns.map(({ pattern }) => pattern.obstacles.map((obstacle) => obstacle.typeId ?? null)),
     speed: Math.round(speed),
     surferY: Math.round(surferY),
     playerX: Math.round(playerX * 1000) / 1000,

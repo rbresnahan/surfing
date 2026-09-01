@@ -1,6 +1,12 @@
 import { CONFIG } from "./config.js";
 import { centeredRect, rectsOverlap } from "./collision.js";
-import { DODGE_OBSTACLE_TYPES, getDodgeObstacleType, selectDodgeObstacleType } from "./dodgeObstacles.js";
+import {
+  DODGE_OBSTACLE_TYPES,
+  ROW_VISUAL_OVERLAP_TOLERANCE,
+  dodgeObstacleVisibleBounds,
+  getDodgeObstacleType,
+  selectDodgeObstacleType
+} from "./dodgeObstacles.js";
 import { obstacleRowCenter, isValidObstacleRow, nearestObstacleRow } from "./rowGeometry.js";
 import { instantiatePattern, PATTERN_BY_ID } from "./obstaclePatterns.js";
 import { validateObstacleTimeline } from "./patternValidator.js";
@@ -84,10 +90,6 @@ export function isEventFair(event, surferY, speed) {
     surferY,
     duration: event.validationDuration
   }).valid;
-}
-
-export function hasMinimumHeadSeparation(head, otherHead) {
-  return !rectsOverlap(expandedRenderBounds(head), expandedRenderBounds(otherHead));
 }
 
 export function isEventPlacementClear(event, activeHeads = []) {
@@ -514,7 +516,8 @@ export function createDodgeObstacle(x, y, random = () => 0, type = selectDodgeOb
     hitboxScaleX: type.hitbox.scaleX,
     hitboxScaleY: type.hitbox.scaleY,
     visualGapX: type.visualGap.x,
-    visualGapY: type.visualGap.y,
+    source: type.source,
+    alpha: type.alpha,
     renderAnchor: type.render.anchor,
     renderOffsetX: type.render.offsetX,
     renderOffsetY: type.render.offsetY,
@@ -634,18 +637,41 @@ function deterministicBobOffset(obstacle) {
 }
 
 function expandedRenderBounds(head) {
-  return centeredRect(
-    head.x,
-    head.y,
-    head.width + (head.visualGapX ?? CONFIG.HEAD_MIN_VISUAL_GAP_X),
-    head.height + (head.visualGapY ?? CONFIG.HEAD_MIN_VISUAL_GAP_Y)
-  );
+  const bounds = dodgeObstacleVisibleBounds(head);
+  const horizontalGap = head.visualGapX ?? CONFIG.HEAD_MIN_VISUAL_GAP_X;
+
+  return {
+    x: bounds.left - horizontalGap / 2,
+    y: bounds.top,
+    width: bounds.width + horizontalGap,
+    height: bounds.height
+  };
+}
+
+function hasVisibleRowSeparation(head, otherHead) {
+  const a = dodgeObstacleVisibleBounds(head);
+  const b = dodgeObstacleVisibleBounds(otherHead);
+  const xOverlaps = a.left < b.right && a.right > b.left;
+  const yOverlaps = a.top < b.bottom - ROW_VISUAL_OVERLAP_TOLERANCE &&
+    a.bottom > b.top + ROW_VISUAL_OVERLAP_TOLERANCE;
+
+  return !(xOverlaps && yOverlaps);
+}
+
+function hasSamePathHorizontalSeparation(head, otherHead) {
+  return !rectsOverlap(expandedRenderBounds(head), expandedRenderBounds(otherHead));
+}
+
+export function hasMinimumHeadSeparation(head, otherHead) {
+  if (head.row === otherHead.row) return hasSamePathHorizontalSeparation(head, otherHead);
+  return hasVisibleRowSeparation(head, otherHead);
 }
 
 function isHeadInsidePlayableY(head) {
+  const bounds = dodgeObstacleVisibleBounds(head);
   return (
-    head.y - head.height / 2 >= CONFIG.SURF_BOUNDS.top &&
-    head.y + head.height / 2 <= CONFIG.SURF_BOUNDS.bottom
+    bounds.top >= CONFIG.SURF_BOUNDS.top &&
+    bounds.bottom <= CONFIG.SURF_BOUNDS.bottom
   );
 }
 

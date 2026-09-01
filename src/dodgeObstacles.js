@@ -1,11 +1,5 @@
-export const DODGE_OBSTACLE_RENDER_SCALE = 1.12;
-
-const DODGE_HEAD_RENDER_WIDTH = 70;
-const DODGE_NOODLE_GIRL_RENDER_WIDTH = 88;
-const DODGE_NOODLE_MAN_RENDER_WIDTH = 96;
-const DODGE_SCUBA_MAN_RENDER_WIDTH = 86;
-const DODGE_TUBE_GIRL_RENDER_HEIGHT = 78;
-const DODGE_TUBE_WOMAN_RENDER_WIDTH = 92;
+export const STANDARD_SWIMMER_VISIBLE_ALPHA_HEIGHT = 48;
+export const ROW_VISUAL_OVERLAP_TOLERANCE = 0.001;
 
 export const DODGE_OBSTACLE_TYPES = [
   createDodgeObstacleType({
@@ -14,9 +8,9 @@ export const DODGE_OBSTACLE_TYPES = [
     file: "dodge-head.png",
     source: { width: 1448, height: 1086 },
     alpha: { x: 0, y: 5, width: 1422, height: 1059 },
-    renderWidth: DODGE_HEAD_RENDER_WIDTH,
+    targetVisibleAlphaHeight: STANDARD_SWIMMER_VISIBLE_ALPHA_HEIGHT,
     hitboxScale: { x: 0.62, y: 0.62 },
-    visualGap: { x: 18, y: 18 }
+    visualGap: { x: 18 }
   }),
   createDodgeObstacleType({
     id: "noodle-girl",
@@ -24,9 +18,9 @@ export const DODGE_OBSTACLE_TYPES = [
     file: "dodge-noodle-girl.png",
     source: { width: 1448, height: 1086 },
     alpha: { x: 0, y: 35, width: 1448, height: 1051 },
-    renderWidth: DODGE_NOODLE_GIRL_RENDER_WIDTH,
+    targetVisibleAlphaHeight: STANDARD_SWIMMER_VISIBLE_ALPHA_HEIGHT,
     hitboxScale: { x: 0.64, y: 0.58 },
-    visualGap: { x: 20, y: 18 }
+    visualGap: { x: 20 }
   }),
   createDodgeObstacleType({
     id: "noodle-man",
@@ -34,9 +28,9 @@ export const DODGE_OBSTACLE_TYPES = [
     file: "dodge-noodle-man.png",
     source: { width: 1672, height: 941 },
     alpha: { x: 40, y: 13, width: 1614, height: 928 },
-    renderWidth: DODGE_NOODLE_MAN_RENDER_WIDTH,
+    targetVisibleAlphaHeight: STANDARD_SWIMMER_VISIBLE_ALPHA_HEIGHT,
     hitboxScale: { x: 0.58, y: 0.58 },
-    visualGap: { x: 22, y: 18 }
+    visualGap: { x: 22 }
   }),
   createDodgeObstacleType({
     id: "scuba-man",
@@ -44,9 +38,9 @@ export const DODGE_OBSTACLE_TYPES = [
     file: "dodge-scuba-man.png",
     source: { width: 1536, height: 1024 },
     alpha: { x: 0, y: 13, width: 1516, height: 987 },
-    renderWidth: DODGE_SCUBA_MAN_RENDER_WIDTH,
+    targetVisibleAlphaHeight: STANDARD_SWIMMER_VISIBLE_ALPHA_HEIGHT,
     hitboxScale: { x: 0.6, y: 0.6 },
-    visualGap: { x: 20, y: 18 }
+    visualGap: { x: 20 }
   }),
   createDodgeObstacleType({
     id: "tube-girl",
@@ -54,9 +48,9 @@ export const DODGE_OBSTACLE_TYPES = [
     file: "dodge-tube-girl.png",
     source: { width: 1254, height: 1254 },
     alpha: { x: 31, y: 16, width: 1191, height: 1238 },
-    renderHeight: DODGE_TUBE_GIRL_RENDER_HEIGHT,
+    targetVisibleAlphaHeight: STANDARD_SWIMMER_VISIBLE_ALPHA_HEIGHT,
     hitboxScale: { x: 0.62, y: 0.62 },
-    visualGap: { x: 18, y: 20 }
+    visualGap: { x: 18 }
   }),
   createDodgeObstacleType({
     id: "tube-woman",
@@ -64,9 +58,9 @@ export const DODGE_OBSTACLE_TYPES = [
     file: "dodge-tube-woman.png",
     source: { width: 1536, height: 1024 },
     alpha: { x: 0, y: 21, width: 1510, height: 965 },
-    renderWidth: DODGE_TUBE_WOMAN_RENDER_WIDTH,
+    targetVisibleAlphaHeight: STANDARD_SWIMMER_VISIBLE_ALPHA_HEIGHT,
     hitboxScale: { x: 0.62, y: 0.62 },
-    visualGap: { x: 20, y: 18 }
+    visualGap: { x: 20 }
   })
 ];
 
@@ -99,24 +93,26 @@ function createDodgeObstacleType({
   file,
   source,
   alpha,
-  renderWidth = null,
-  renderHeight = null,
+  targetVisibleAlphaHeight,
   renderOffsetX = 0,
   renderOffsetY = 0,
   hitboxScale,
   visualGap
 }) {
   const sourceAspect = source.width / source.height;
-  const baseWidth = renderWidth ?? renderHeight * sourceAspect;
-  const baseHeight = renderHeight ?? renderWidth / sourceAspect;
-  const width = baseWidth * DODGE_OBSTACLE_RENDER_SCALE;
-  const height = baseHeight * DODGE_OBSTACLE_RENDER_SCALE;
+  const height = targetVisibleAlphaHeight / (alpha.height / source.height);
+  const width = height * sourceAspect;
+  const visibleAlpha = {
+    width: width * (alpha.width / source.width),
+    height: targetVisibleAlphaHeight
+  };
 
   return {
     id,
     assetKey,
     file,
     spawnWeight: 1,
+    targetVisibleAlphaHeight,
     render: {
       width,
       height,
@@ -126,12 +122,69 @@ function createDodgeObstacleType({
     },
     source,
     alpha,
+    visibleAlpha,
     hitbox: {
-      width: width * (alpha.width / source.width),
-      height: height * (alpha.height / source.height),
+      width: visibleAlpha.width,
+      height: visibleAlpha.height,
       scaleX: hitboxScale.x,
       scaleY: hitboxScale.y
     },
     visualGap
+  };
+}
+
+export function dodgeObstacleVisibleBounds(obstacle) {
+  const type = getDodgeObstacleType(obstacle.obstacleTypeId);
+  const source = type?.source ?? obstacle.source;
+  const alpha = type?.alpha ?? obstacle.alpha;
+  if (!source || !alpha) {
+    return {
+      left: obstacle.x - obstacle.width / 2,
+      right: obstacle.x + obstacle.width / 2,
+      top: obstacle.y - obstacle.height / 2,
+      bottom: obstacle.y + obstacle.height / 2,
+      width: obstacle.width,
+      height: obstacle.height
+    };
+  }
+
+  const anchor = obstacle.renderAnchor ?? type?.render.anchor ?? { x: 0.5, y: 0.5 };
+  const offsetX = obstacle.renderOffsetX ?? type?.render.offsetX ?? 0;
+  const offsetY = obstacle.renderOffsetY ?? type?.render.offsetY ?? 0;
+  const renderLeft = obstacle.x + offsetX - obstacle.width * anchor.x;
+  const renderTop = obstacle.y + offsetY - obstacle.height * anchor.y;
+  const left = renderLeft + (alpha.x / source.width) * obstacle.width;
+  const top = renderTop + (alpha.y / source.height) * obstacle.height;
+  const width = (alpha.width / source.width) * obstacle.width;
+  const height = (alpha.height / source.height) * obstacle.height;
+
+  return {
+    left,
+    right: left + width,
+    top,
+    bottom: top + height,
+    width,
+    height
+  };
+}
+
+export function materializeDodgeObstacleGeometry(typeId) {
+  const type = getDodgeObstacleType(typeId);
+  if (!type) return null;
+  return {
+    obstacleTypeId: type.id,
+    assetKey: type.assetKey,
+    source: type.source,
+    alpha: type.alpha,
+    width: type.render.width,
+    height: type.render.height,
+    collisionWidth: type.hitbox.width,
+    collisionHeight: type.hitbox.height,
+    hitboxScaleX: type.hitbox.scaleX,
+    hitboxScaleY: type.hitbox.scaleY,
+    visualGapX: type.visualGap.x,
+    renderAnchor: type.render.anchor,
+    renderOffsetX: type.render.offsetX,
+    renderOffsetY: type.render.offsetY
   };
 }

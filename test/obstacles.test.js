@@ -3,15 +3,17 @@ import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
 import { CONFIG } from "../src/config.js";
 import {
-  DODGE_OBSTACLE_RENDER_SCALE,
   DODGE_OBSTACLE_TYPES,
+  STANDARD_SWIMMER_VISIBLE_ALPHA_HEIGHT,
+  dodgeObstacleVisibleBounds,
   getDodgeObstacleType,
+  materializeDodgeObstacleGeometry,
   selectDodgeObstacleType
 } from "../src/dodgeObstacles.js";
 import { OBSTACLE_PATTERNS, PATTERN_BY_ID, instantiatePattern, validatePatternTuning } from "../src/obstaclePatterns.js";
 import { obstacleRowCenter, obstacleRowCenters } from "../src/rowGeometry.js";
 import { isSurferPositionValid } from "../src/surferGeometry.js";
-import { validateObstacleTimeline, validatePatternSequence } from "../src/patternValidator.js";
+import { flattenPatterns, validateObstacleTimeline, validatePatternSequence } from "../src/patternValidator.js";
 import {
   canSpawnNextEvent,
   createDodgeObstacle,
@@ -38,14 +40,6 @@ const NOODLE_MAN_TYPE = getDodgeObstacleType("noodle-man");
 const SCUBA_MAN_TYPE = getDodgeObstacleType("scuba-man");
 const TUBE_GIRL_TYPE = getDodgeObstacleType("tube-girl");
 const TUBE_WOMAN_TYPE = getDodgeObstacleType("tube-woman");
-const DODGE_BASE_RENDER_SIZES = {
-  head: { width: 70, height: 70 / (1448 / 1086) },
-  "noodle-girl": { width: 88, height: 88 / (1448 / 1086) },
-  "noodle-man": { width: 96, height: 96 / (1672 / 941) },
-  "scuba-man": { width: 86, height: 86 / (1536 / 1024) },
-  "tube-girl": { width: 78 * (1254 / 1254), height: 78 },
-  "tube-woman": { width: 92, height: 92 / (1536 / 1024) }
-};
 
 test("single events always have a valid Y position", () => {
   for (let i = 0; i < 50; i += 1) {
@@ -94,7 +88,7 @@ test("impossible deterministic candidates are rejected before a fallback is retu
     }
   });
 
-  assert.equal(event.attemptCount, 6);
+  assert.equal(event.attemptCount, 4);
   assert.equal(isEventFair(event, CONFIG.SURF_BOUNDS.bottom, event.speed), true);
 });
 
@@ -139,29 +133,30 @@ test("a head cannot spawn with rendered bounds overlapping an active head", () =
 
 test("configured minimum visual gap is respected", () => {
   const head = createTestHead(400, 300);
-  const tooClose = createTestHead(400 + head.width + head.visualGapX - 0.1, 300);
-  const clear = createTestHead(400 + head.width + head.visualGapX + 0.001, 300);
+  const requiredGap = dodgeObstacleVisibleBounds(head).width + head.visualGapX;
+  const tooClose = createTestHead(400 + requiredGap - 0.1, 300);
+  const clear = createTestHead(400 + requiredGap + 0.001, 300);
 
   assert.equal(hasMinimumHeadSeparation(head, tooClose), false);
   assert.equal(hasMinimumHeadSeparation(head, clear), true);
 });
 
-test("configured vertical visual gap is respected", () => {
-  const head = createTestHead(400, 300);
-  const tooClose = createTestHead(400, 300 + head.height + head.visualGapY - 0.1);
-  const clear = createTestHead(400, 300 + head.height + head.visualGapY + 0.001);
+test("different-row swimmers use visible alpha bounds instead of arbitrary vertical padding", () => {
+  const head = createDodgeObstacle(400, obstacleRowCenter(2), Math.random, HEAD_TYPE, { row: 2 });
+  const adjacent = createDodgeObstacle(400, obstacleRowCenter(3), Math.random, TUBE_GIRL_TYPE, { row: 3 });
+  const shiftToOverlap = dodgeObstacleVisibleBounds(head).bottom - dodgeObstacleVisibleBounds(adjacent).top - 0.1;
+  const overlapping = { ...adjacent, y: adjacent.y + shiftToOverlap };
 
-  assert.equal(hasMinimumHeadSeparation(head, tooClose), false);
-  assert.equal(hasMinimumHeadSeparation(head, clear), true);
+  assert.equal(hasMinimumHeadSeparation(head, adjacent), true);
+  assert.equal(hasMinimumHeadSeparation(head, overlapping), false);
 });
 
 test("vertically stacked heads with insufficient space are rejected", () => {
+  const row2 = createDodgeObstacle(500, obstacleRowCenter(2), Math.random, HEAD_TYPE, { row: 2 });
+  const row3 = createDodgeObstacle(500, obstacleRowCenter(3), Math.random, HEAD_TYPE, { row: 3 });
   const event = fakeEvent([
-    { x: 500, y: 260 },
-    {
-      x: 500,
-      y: 260 + CONFIG.HEAD_DISPLAY_HEIGHT + CONFIG.HEAD_MIN_VISUAL_GAP_Y - 1
-    }
+    { x: row2.x, y: row2.y, type: HEAD_TYPE },
+    { x: row3.x, y: row2.y + STANDARD_SWIMMER_VISIBLE_ALPHA_HEIGHT - 1, type: HEAD_TYPE }
   ]);
 
   assert.equal(isEventPlacementClear(event), false);
@@ -171,7 +166,7 @@ test("multiple heads in the same proposed event are checked against one another"
   const event = fakeEvent([
     { x: 500, y: 300 },
     {
-      x: 500 + CONFIG.HEAD_DISPLAY_WIDTH + CONFIG.HEAD_MIN_VISUAL_GAP_X - 1,
+      x: 500 + row2VisibleWidth() + CONFIG.HEAD_MIN_VISUAL_GAP_X - 1,
       y: 300
     }
   ]);
@@ -310,7 +305,6 @@ test("each registered dodge obstacle keeps its own dimensions, spacing, and coll
     assert.ok(type.alpha.x + type.alpha.width <= type.source.width);
     assert.ok(type.alpha.y + type.alpha.height <= type.source.height);
     assert.ok(type.visualGap.x > 0);
-    assert.ok(type.visualGap.y > 0);
     assert.equal(seenIds.has(type.id), false);
     assert.equal(seenAssets.has(type.assetKey), false);
     seenIds.add(type.id);
@@ -318,11 +312,10 @@ test("each registered dodge obstacle keeps its own dimensions, spacing, and coll
   }
 });
 
-test("standard dodge obstacles render at the configured scale without changing their centers", () => {
-  assert.equal(DODGE_OBSTACLE_RENDER_SCALE, 1.12);
-
+test("standard dodge obstacles render from an explicit visible-alpha target without changing centers", () => {
   for (const type of DODGE_OBSTACLE_TYPES) {
-    const baseSize = DODGE_BASE_RENDER_SIZES[type.id];
+    const expectedHeight = STANDARD_SWIMMER_VISIBLE_ALPHA_HEIGHT / (type.alpha.height / type.source.height);
+    const expectedWidth = expectedHeight * (type.source.width / type.source.height);
     const obstacle = createDodgeObstacle(420, obstacleRowCenter(3), Math.random, type, { row: 3 });
     const manager = new ObstacleManager();
     const ctx = new FakeContext();
@@ -330,27 +323,28 @@ test("standard dodge obstacles render at the configured scale without changing t
 
     manager.draw(ctx, { dodgeObstacles: { [type.assetKey]: image(type.assetKey) } });
 
-    assert.equal(obstacle.width, baseSize.width * DODGE_OBSTACLE_RENDER_SCALE);
-    assert.equal(obstacle.height, baseSize.height * DODGE_OBSTACLE_RENDER_SCALE);
-    assert.equal(ctx.drawnWidth, baseSize.width * DODGE_OBSTACLE_RENDER_SCALE);
-    assert.equal(ctx.drawnHeight, baseSize.height * DODGE_OBSTACLE_RENDER_SCALE);
+    assertAlmostEqual(obstacle.width, expectedWidth);
+    assertAlmostEqual(obstacle.height, expectedHeight);
+    assertAlmostEqual(ctx.drawnWidth, expectedWidth);
+    assertAlmostEqual(ctx.drawnHeight, expectedHeight);
     assert.equal(ctx.drawnX + ctx.drawnWidth / 2, obstacle.x);
     assert.equal(ctx.drawnY + ctx.drawnHeight / 2, obstacle.y);
     assert.equal(obstacle.y, obstacleRowCenter(3));
+    assert.equal(dodgeObstacleVisibleBounds(obstacle).height, STANDARD_SWIMMER_VISIBLE_ALPHA_HEIGHT);
   }
 });
 
 test("standard dodge collision bounds scale with the rendered alpha bounds", () => {
   for (const type of DODGE_OBSTACLE_TYPES) {
-    const baseSize = DODGE_BASE_RENDER_SIZES[type.id];
     const obstacle = createDodgeObstacle(420, obstacleRowCenter(2), Math.random, type, { row: 2 });
-    const expectedCollisionWidth = baseSize.width * (type.alpha.width / type.source.width) * DODGE_OBSTACLE_RENDER_SCALE;
-    const expectedCollisionHeight = baseSize.height * (type.alpha.height / type.source.height) * DODGE_OBSTACLE_RENDER_SCALE;
+    const expectedVisible = dodgeObstacleVisibleBounds(obstacle);
 
-    assertAlmostEqual(obstacle.collisionWidth, expectedCollisionWidth);
-    assertAlmostEqual(obstacle.collisionHeight, expectedCollisionHeight);
+    assertAlmostEqual(obstacle.collisionWidth, expectedVisible.width);
+    assertAlmostEqual(obstacle.collisionHeight, expectedVisible.height);
     assert.equal(obstacle.hitboxScaleX, type.hitbox.scaleX);
     assert.equal(obstacle.hitboxScaleY, type.hitbox.scaleY);
+    assert.ok(obstacle.collisionWidth * obstacle.hitboxScaleX < expectedVisible.width);
+    assert.ok(obstacle.collisionHeight * obstacle.hitboxScaleY < expectedVisible.height);
   }
 });
 
@@ -456,18 +450,21 @@ test("post-encounter stage 2 manager path resumes normal swimmers and reaches no
   assert.equal(spawned[1].heads.some((head) => head.assetKey === "dodge-noodle-man"), true);
 });
 
-test("scheduled stage 2 patterns are runtime-valid with actual dodge sprite geometry", () => {
-  for (const patternId of stageTuning(2).schedule) {
+test("scheduled tier 1-3 patterns are runtime-valid with actual dodge sprite geometry", () => {
+  for (const stage of [0, 1, 2]) {
+    for (const patternId of stageTuning(stage).schedule) {
     const event = createObstacleEvent({
       surferY: 300,
       elapsed: 0,
       pattern: PATTERN_BY_ID[patternId],
-      difficultyStage: 2
+      difficultyStage: stage
     });
 
     assert.notEqual(event, null, patternId);
+    assert.equal(event.patternId, patternId);
     assert.equal(isEventFair(event, 300, event.speed), true, patternId);
     assert.equal(isEventPlacementClear(event), true, patternId);
+  }
   }
 });
 
@@ -560,6 +557,46 @@ test("valid two-row gate pattern is accepted by the fairness validator", () => {
   });
 
   assert.equal(result.valid, true);
+});
+
+test("all standard swimmers fit every authoritative obstacle row by visible alpha", () => {
+  const spacing = obstacleRowCenters()[1] - obstacleRowCenters()[0];
+
+  for (const type of DODGE_OBSTACLE_TYPES) {
+    for (const row of [0, 1, 2, 3, 4, 5]) {
+      const obstacle = createDodgeObstacle(420, obstacleRowCenter(row), Math.random, type, { row });
+      const bounds = dodgeObstacleVisibleBounds(obstacle);
+
+      assert.ok(bounds.top >= CONFIG.SURF_BOUNDS.top, `${type.id} row ${row} top`);
+      assert.ok(bounds.bottom <= CONFIG.SURF_BOUNDS.bottom, `${type.id} row ${row} bottom`);
+      assert.ok(bounds.height <= spacing, `${type.id} row ${row} height`);
+    }
+  }
+});
+
+test("minimum two-row openings are visibly passable while one-row openings are not", () => {
+  const requiredOpening = CONFIG.SURFER_DISPLAY_HEIGHT * CONFIG.SURFER_HITBOX_SCALE_Y +
+    CONFIG.PATTERN_VALIDATION_PADDING * 2;
+  const twoRowWall = [0, 1, 4, 5].map((row) =>
+    createDodgeObstacle(420, obstacleRowCenter(row), Math.random, HEAD_TYPE, { row })
+  );
+  const oneRowWall = [0, 1, 2, 4, 5].map((row) =>
+    createDodgeObstacle(420, obstacleRowCenter(row), Math.random, HEAD_TYPE, { row })
+  );
+
+  assert.ok(largestVisibleOpening(twoRowWall) >= requiredOpening);
+  assert.ok(largestVisibleOpening(oneRowWall) < requiredOpening);
+});
+
+test("pattern validation materializes authored obstacle type geometry", () => {
+  const pattern = instantiatePattern(PATTERN_BY_ID["opening-single-center"]);
+  const [obstacle] = flattenPatterns([{ pattern }], CONFIG.OBSTACLE_START_SPEED);
+  const tubeGirl = materializeDodgeObstacleGeometry("tube-girl");
+
+  assert.equal(obstacle.typeId, "tube-girl");
+  assert.equal(obstacle.obstacleTypeId, "tube-girl");
+  assert.equal(obstacle.collisionHeight, tubeGirl.collisionHeight);
+  assert.notEqual(obstacle.collisionWidth, materializeDodgeObstacleGeometry("head").collisionWidth);
 });
 
 test("a wall with only one usable row is rejected", () => {
@@ -682,17 +719,18 @@ test("spawned obstacles retain their selected type during update, collision, and
 
 test("noodle-man scale and alpha-derived collision remain unchanged", () => {
   const obstacle = createDodgeObstacle(420, obstacleRowCenter(3), Math.random, NOODLE_MAN_TYPE, { row: 3 });
-  const expectedBase = DODGE_BASE_RENDER_SIZES["noodle-man"];
+  const expectedHeight = STANDARD_SWIMMER_VISIBLE_ALPHA_HEIGHT / (NOODLE_MAN_TYPE.alpha.height / NOODLE_MAN_TYPE.source.height);
+  const expectedWidth = expectedHeight * (NOODLE_MAN_TYPE.source.width / NOODLE_MAN_TYPE.source.height);
 
-  assert.equal(obstacle.width, expectedBase.width * DODGE_OBSTACLE_RENDER_SCALE);
-  assert.equal(obstacle.height, expectedBase.height * DODGE_OBSTACLE_RENDER_SCALE);
+  assertAlmostEqual(obstacle.width, expectedWidth);
+  assertAlmostEqual(obstacle.height, expectedHeight);
   assertAlmostEqual(
     obstacle.collisionWidth,
-    expectedBase.width * (NOODLE_MAN_TYPE.alpha.width / NOODLE_MAN_TYPE.source.width) * DODGE_OBSTACLE_RENDER_SCALE
+    expectedWidth * (NOODLE_MAN_TYPE.alpha.width / NOODLE_MAN_TYPE.source.width)
   );
   assertAlmostEqual(
     obstacle.collisionHeight,
-    expectedBase.height * (NOODLE_MAN_TYPE.alpha.height / NOODLE_MAN_TYPE.source.height) * DODGE_OBSTACLE_RENDER_SCALE
+    STANDARD_SWIMMER_VISIBLE_ALPHA_HEIGHT
   );
   assert.equal(obstacle.hitboxScaleX, 0.58);
   assert.equal(obstacle.hitboxScaleY, 0.58);
@@ -740,19 +778,13 @@ test("each dodge obstacle type carries its own collision configuration", () => {
 
 test("mixed obstacle groups respect the configured visual gap", () => {
   const head = createDodgeObstacle(400, 300, Math.random, HEAD_TYPE);
-  const requiredCenterGap = (
-    head.width +
-    head.visualGapX +
-    tubeWomanVisualWidth() +
-    TUBE_WOMAN_TYPE.visualGap.x
-  ) / 2;
   const tubeWoman = createDodgeObstacle(
-    400 + requiredCenterGap - 0.1,
+    400,
     300,
     Math.random,
     TUBE_WOMAN_TYPE
   );
-  const clearTubeWoman = { ...tubeWoman, x: tubeWoman.x + 0.1 };
+  const clearTubeWoman = { ...tubeWoman, x: tubeWoman.x + head.width + tubeWoman.width };
 
   assert.equal(isEventPlacementClear(fakeEventFromObstacles([head, tubeWoman])), false);
   assert.equal(isEventPlacementClear(fakeEventFromObstacles([head, clearTubeWoman])), true);
@@ -998,8 +1030,23 @@ function createBlockingSpawnColumn() {
   return heads;
 }
 
-function tubeWomanVisualWidth() {
-  return TUBE_WOMAN_TYPE.render.width;
+function row2VisibleWidth() {
+  return dodgeObstacleVisibleBounds(createDodgeObstacle(0, obstacleRowCenter(2), Math.random, HEAD_TYPE, { row: 2 })).width;
+}
+
+function largestVisibleOpening(obstacles) {
+  const occupied = obstacles
+    .map(dodgeObstacleVisibleBounds)
+    .sort((a, b) => a.top - b.top);
+  let largest = 0;
+  let cursor = CONFIG.SURF_BOUNDS.top;
+
+  for (const bounds of occupied) {
+    largest = Math.max(largest, bounds.top - cursor);
+    cursor = Math.max(cursor, bounds.bottom);
+  }
+
+  return Math.max(largest, CONFIG.SURF_BOUNDS.bottom - cursor);
 }
 
 async function sourceFilePaths() {
