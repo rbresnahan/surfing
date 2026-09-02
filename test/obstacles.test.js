@@ -10,7 +10,13 @@ import {
   materializeDodgeObstacleGeometry,
   selectDodgeObstacleType
 } from "../src/dodgeObstacles.js";
-import { OBSTACLE_PATTERNS, PATTERN_BY_ID, instantiatePattern, validatePatternTuning } from "../src/obstaclePatterns.js";
+import {
+  OBSTACLE_PATTERNS,
+  PATTERN_BY_ID,
+  instantiatePattern,
+  patternHorizontalDuration,
+  validatePatternTuning
+} from "../src/obstaclePatterns.js";
 import { obstacleRowCenter, obstacleRowCenters } from "../src/rowGeometry.js";
 import { isSurferPositionValid } from "../src/surferGeometry.js";
 import { flattenPatterns, validateObstacleTimeline, validatePatternSequence } from "../src/patternValidator.js";
@@ -425,13 +431,26 @@ test("row geometry calculates exactly six centers inside the playable bounds", (
 });
 
 test("ordinary pattern library exposes deliberate tiered row patterns", () => {
-  assert.ok(OBSTACLE_PATTERNS.length >= 12);
+  assert.ok(OBSTACLE_PATTERNS.length >= 24);
   assert.deepEqual(PATTERN_BY_ID["center-gate"].obstacles.map((obstacle) => obstacle.row), [0, 1, 4, 5]);
   assert.equal(PATTERN_BY_ID["diagonal-weave"].safeRoute.includes("diagonal"), true);
-  assert.equal(PATTERN_BY_ID["dense-finale"].allowOverlap, true);
+  assert.equal(PATTERN_BY_ID["dense-finale"].allowOverlap, false);
 });
 
-test("authored pattern tuning references valid stages, rows, and pattern IDs", () => {
+test("confirmed dead legacy pattern ids no longer resolve", () => {
+  for (const id of [
+    "single-low",
+    "single-high",
+    "single-center",
+    "two-row-gate-top",
+    "two-row-gate-bottom",
+    "alternating-gates"
+  ]) {
+    assert.equal(PATTERN_BY_ID[id], undefined, id);
+  }
+});
+
+test("authored pattern tuning references valid tiers, rows, and pattern IDs", () => {
   const result = validatePatternTuning();
 
   assert.deepEqual(result.errors, []);
@@ -444,8 +463,8 @@ test("authored normal swimmer patterns never spawn more than two swimmers at one
   }
 });
 
-test("scheduled tier 1-3 swimmer patterns never spawn more than two swimmers at one timestamp", () => {
-  for (const tierId of LEGACY_SWIMMER_TIER_IDS) {
+test("scheduled tier 1-5 swimmer patterns never spawn more than two swimmers at one timestamp", () => {
+  for (const tierId of Object.keys(SWIMMER_TIERS).map(Number)) {
     const tier = SWIMMER_TIERS[tierId];
     for (const patternId of tier.schedule) {
       assert.ok(maxSimultaneousSwimmers(PATTERN_BY_ID[patternId]) <= 2, patternId);
@@ -467,11 +486,13 @@ test("tier 1-3 deterministic schedule order remains authored", () => {
     "stage1-same-row-follow",
     "stage1-high-low",
     "stage1-low-high",
+    "center-gate",
     "stage1-diagonal"
   ]);
   assert.deepEqual(SWIMMER_TIERS[3].schedule, [
     "stage2-staggered-diagonal",
     "stage2-sweeping-staircase",
+    "sweeping-staircase",
     "stage2-split-clusters",
     "stage2-dense-gate",
     "stage2-long-weave"
@@ -503,13 +524,14 @@ test("deterministic scheduler repeats the same stage sequence after reset", () =
 });
 
 test("stage 2 deterministic schedule keeps noodle-man reachable after cooler fallback", () => {
-  const first = sampleStageEvents(2, 5);
-  const second = sampleStageEvents(2, 5);
+  const first = sampleStageEvents(2, 6);
+  const second = sampleStageEvents(2, 6);
 
   assert.deepEqual(first, second);
   assert.deepEqual(first.map((event) => event.patternId), [
     "stage2-staggered-diagonal",
     "stage2-sweeping-staircase",
+    "sweeping-staircase",
     "stage2-split-clusters",
     "stage2-dense-gate",
     "stage2-long-weave"
@@ -538,32 +560,133 @@ test("post-encounter stage 2 manager path resumes normal swimmers and reaches no
   assert.equal(spawned[1].heads.some((head) => head.assetKey === "dodge-noodle-man"), true);
 });
 
-test("scheduled tier 1-3 patterns are runtime-valid with actual dodge sprite geometry", () => {
-  for (const stage of [0, 1, 2]) {
-    for (const patternId of stageTuning(stage).schedule) {
-    const event = createObstacleEvent({
-      surferY: 300,
-      elapsed: 0,
-      pattern: PATTERN_BY_ID[patternId],
-      difficultyStage: stage
-    });
+test("scheduled tier 1-5 patterns are runtime-valid with actual dodge sprite geometry", () => {
+  for (const tierId of Object.keys(SWIMMER_TIERS).map(Number)) {
+    for (const patternId of swimmerTier(tierId).schedule) {
+      const event = createObstacleEvent({
+        surferY: 300,
+        elapsed: 0,
+        pattern: PATTERN_BY_ID[patternId],
+        difficultyTier: tierId
+      });
 
-    assert.notEqual(event, null, patternId);
-    assert.equal(event.patternId, patternId);
-    assert.equal(isEventFair(event, 300, event.speed), true, patternId);
-    assert.equal(isEventPlacementClear(event), true, patternId);
-  }
+      assert.notEqual(event, null, patternId);
+      assert.equal(event.patternId, patternId);
+      assert.equal(isEventFair(event, 300, event.speed), true, patternId);
+      assert.equal(isEventPlacementClear(event), true, patternId);
+    }
   }
 });
 
-test("planned tier schedules cannot be used by the runtime obstacle path", () => {
+test("advanced and escalated tier schedules can be used by authored runtime paths", () => {
   for (const tier of [4, 5]) {
-    assert.equal(swimmerTier(tier).contentStatus, "planned");
-    assert.throws(() => createObstacleEvent({
+    assert.equal(swimmerTier(tier).contentStatus, "ready");
+    const event = createObstacleEvent({
       surferY: 300,
       elapsed: 0,
       difficultyTier: tier
-    }), /does not yet have playable authored content/);
+    });
+    assert.notEqual(event, null, `tier ${tier}`);
+    assert.equal(swimmerTier(tier).schedule.includes(event.patternId), true);
+  }
+});
+
+test("tier 2 includes center-gate in deterministic authored order", () => {
+  assert.equal(swimmerTier(2).schedule.length, 6);
+  assert.deepEqual(swimmerTier(2).schedule, [
+    "stage1-alternating-openings",
+    "stage1-same-row-follow",
+    "stage1-high-low",
+    "stage1-low-high",
+    "center-gate",
+    "stage1-diagonal"
+  ]);
+});
+
+test("tier 3 includes a stronger staircase distinct from tier 2 diagonal", () => {
+  const staircase = PATTERN_BY_ID["sweeping-staircase"];
+  const diagonal = PATTERN_BY_ID["stage1-diagonal"];
+
+  assert.equal(swimmerTier(3).schedule.length, 6);
+  assert.equal(swimmerTier(3).schedule.includes("sweeping-staircase"), true);
+  assert.notDeepEqual(
+    staircase.obstacles.map(({ row, timeOffset }) => [row, timeOffset]),
+    diagonal.obstacles.map(({ row, timeOffset }) => [row, timeOffset])
+  );
+  assert.ok(staircase.obstacles.length > diagonal.obstacles.length);
+  assert.equal(validatePatternSequence([{ pattern: staircase }], {
+    speed: swimmerTier(3).speed,
+    surferY: 300
+  }).valid, true);
+});
+
+test("tier 4 swimmer library is ready, exact, deterministic, and validated", () => {
+  assert.equal(swimmerTier(4).contentStatus, "ready");
+  assert.deepEqual(swimmerTier(4).schedule, [
+    "diagonal-weave",
+    "split-clusters",
+    "advanced-pressure-release",
+    "advanced-route-migration"
+  ]);
+  assertTierScheduleRuntimeValid(4);
+  assert.deepEqual(sampleTierEvents(4, 4).map((event) => event.patternId), swimmerTier(4).schedule);
+  assert.deepEqual(sampleTierEvents(4, 8).map((event) => event.patternId), [
+    ...swimmerTier(4).schedule,
+    ...swimmerTier(4).schedule
+  ]);
+});
+
+test("tier 5 swimmer library is ready, exact, deterministic, and validated", () => {
+  assert.equal(swimmerTier(5).contentStatus, "ready");
+  assert.deepEqual(swimmerTier(5).schedule, [
+    "dense-finale",
+    "escalated-cross-pressure",
+    "escalated-endurance-weave"
+  ]);
+  assertTierScheduleRuntimeValid(5);
+  assert.deepEqual(sampleTierEvents(5, 3).map((event) => event.patternId), swimmerTier(5).schedule);
+  assert.deepEqual(sampleTierEvents(5, 6).map((event) => event.patternId), [
+    ...swimmerTier(5).schedule,
+    ...swimmerTier(5).schedule
+  ]);
+});
+
+test("all scheduled swimmer content references real patterns, rows, types, and viable routes", () => {
+  const swimmerTypeIds = new Set(DODGE_OBSTACLE_TYPES.map((type) => type.id));
+
+  for (const tierId of Object.keys(SWIMMER_TIERS).map(Number)) {
+    const tier = swimmerTier(tierId);
+    for (const patternId of tier.schedule) {
+      const pattern = PATTERN_BY_ID[patternId];
+      assert.ok(pattern, patternId);
+      assert.equal(pattern.tier, tierId, patternId);
+      assert.ok(maxSimultaneousSwimmers(pattern) <= 2, patternId);
+      assert.equal(validatePatternSequence([{ pattern }], {
+        speed: tier.speed,
+        surferY: 300
+      }).valid, true, patternId);
+      for (const obstacle of pattern.obstacles) {
+        assert.ok(Number.isInteger(obstacle.row) && obstacle.row >= 0 && obstacle.row < CONFIG.OBSTACLE_ROW_COUNT, patternId);
+        assert.equal(swimmerTypeIds.has(obstacle.typeId), true, `${patternId}:${obstacle.typeId}`);
+      }
+    }
+  }
+});
+
+test("representative tier 4 and tier 5 consecutive schedules remain route-valid at runtime cadence", () => {
+  for (const tierId of [4, 5]) {
+    const tier = swimmerTier(tierId);
+    let startTime = 0;
+    const sequence = tier.schedule.map((patternId) => {
+      const pattern = PATTERN_BY_ID[patternId];
+      const scheduled = { pattern, startTime };
+      startTime += patternHorizontalDuration(pattern, tier.speed) + tier.spawnDelaySeconds;
+      return scheduled;
+    });
+    assert.equal(validatePatternSequence(sequence, {
+      speed: tier.speed,
+      surferY: 300
+    }).valid, true, `tier ${tierId}`);
   }
 });
 
@@ -757,8 +880,8 @@ test("fairness validator samples surfer positions through authoritative movement
 });
 
 test("overlapping patterns are rejected when their combined route is blocked", () => {
-  const topGate = instantiatePattern(PATTERN_BY_ID["two-row-gate-top"], { mirror: false });
-  const bottomGate = instantiatePattern(PATTERN_BY_ID["two-row-gate-bottom"], { mirror: false });
+  const topGate = instantiatePattern(PATTERN_BY_ID["opening-gate-top"], { mirror: false });
+  const bottomGate = instantiatePattern(PATTERN_BY_ID["opening-gate-bottom"], { mirror: false });
   const result = validatePatternSequence([
     { pattern: topGate, startTime: 0 },
     { pattern: bottomGate, startTime: 0 }
@@ -1289,6 +1412,44 @@ function maxSimultaneousSwimmers(pattern) {
     counts.set(obstacle.timeOffset, (counts.get(obstacle.timeOffset) ?? 0) + 1);
   }
   return Math.max(0, ...counts.values());
+}
+
+function assertTierScheduleRuntimeValid(tierId) {
+  const tier = swimmerTier(tierId);
+  for (const patternId of tier.schedule) {
+    const pattern = PATTERN_BY_ID[patternId];
+    const event = createObstacleEvent({
+      surferY: 300,
+      elapsed: 0,
+      pattern,
+      difficultyTier: tierId
+    });
+
+    assert.notEqual(event, null, patternId);
+    assert.equal(event.patternId, patternId);
+    assert.equal(isEventFair(event, 300, event.speed), true, patternId);
+    assert.equal(isEventPlacementClear(event), true, patternId);
+    assert.equal(validatePatternSequence([{ pattern }], {
+      speed: tier.speed,
+      surferY: 300
+    }).valid, true, patternId);
+  }
+}
+
+function sampleTierEvents(tierId, count) {
+  const tier = swimmerTier(tierId);
+  const scheduler = new DeterministicObstacleScheduler({ tier });
+  const events = [];
+  for (let i = 0; i < count; i += 1) {
+    const event = scheduler.nextEvent({
+      difficultyTier: tierId,
+      tierTuning: tier,
+      surferY: 300,
+      activeHeads: []
+    });
+    events.push(event);
+  }
+  return events;
 }
 
 function sampleScheduledEvents() {

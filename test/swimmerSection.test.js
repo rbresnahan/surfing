@@ -76,6 +76,7 @@ test("currently defined swimmer tiers are authoritative authoring envelopes", ()
       "stage1-same-row-follow",
       "stage1-high-low",
       "stage1-low-high",
+      "center-gate",
       "stage1-diagonal"
     ]
   });
@@ -92,6 +93,7 @@ test("currently defined swimmer tiers are authoritative authoring envelopes", ()
     schedule: [
       "stage2-staggered-diagonal",
       "stage2-sweeping-staircase",
+      "sweeping-staircase",
       "stage2-split-clusters",
       "stage2-dense-gate",
       "stage2-long-weave"
@@ -100,30 +102,39 @@ test("currently defined swimmer tiers are authoritative authoring envelopes", ()
   assert.deepEqual(swimmerTier(4), {
     id: 4,
     name: "advanced",
-    contentStatus: "planned",
+    contentStatus: "ready",
     rowRelease: "progress",
     releaseProgress: 0.45,
     maxActivePerRow: 2,
     spawnDelaySeconds: 0.4,
     speed: 290,
-    schedule: []
+    schedule: [
+      "diagonal-weave",
+      "split-clusters",
+      "advanced-pressure-release",
+      "advanced-route-migration"
+    ]
   });
   assert.deepEqual(swimmerTier(5), {
     id: 5,
     name: "escalated",
-    contentStatus: "planned",
+    contentStatus: "ready",
     rowRelease: "progress",
     releaseProgress: 0.4,
     maxActivePerRow: 2,
     spawnDelaySeconds: 0.34,
     speed: 320,
-    schedule: []
+    schedule: [
+      "dense-finale",
+      "escalated-cross-pressure",
+      "escalated-endurance-weave"
+    ]
   });
 });
 
 test("tier architecture does not treat tier 5 as a permanent compatibility ceiling", () => {
   assert.equal(swimmerTier(5).name, "escalated");
-  assert.equal(swimmerTier(5).contentStatus, "planned");
+  assert.equal(swimmerTier(5).contentStatus, "ready");
   assert.throws(() => swimmerTier(6), /Unknown swimmer tier/);
   assert.equal(stageTuning(999).tier, 3);
   assert.deepEqual(DIFFICULTY_STAGES.map((stage) => stage.tier), LEGACY_SWIMMER_TIER_IDS);
@@ -267,20 +278,23 @@ test("section validation rejects invalid authoring clearly", () => {
   ]), /Duplicate swimmer section id/);
 });
 
-test("planned swimmer tiers cannot enter gameplay before content is authored", () => {
+test("advanced and escalated swimmer tiers can enter authored gameplay", () => {
   for (const tier of [4, 5]) {
-    assert.equal(swimmerTier(tier).contentStatus, "planned");
-    assert.deepEqual(swimmerTier(tier).schedule, []);
-    assert.throws(() => validateSwimmerSectionDefinition({
-      id: `planned-tier-${tier}`,
+    assert.equal(swimmerTier(tier).contentStatus, "ready");
+    assert.ok(swimmerTier(tier).schedule.length > 0);
+    assert.equal(validateSwimmerSectionDefinition({
+      id: `ready-tier-${tier}`,
       tier,
       completion: { type: "endless" }
-    }), /does not yet have playable authored content/);
-    assert.throws(() => new SwimmerSection({
-      id: `planned-tier-${tier}`,
+    }), true);
+    const section = new SwimmerSection({
+      id: `ready-tier-${tier}`,
       tier,
       completion: { type: "endless" }
-    }), /does not yet have playable authored content/);
+    });
+    section.start(0);
+    assert.equal(section.tierId, tier);
+    assert.deepEqual(section.tier.schedule, swimmerTier(tier).schedule);
   }
 });
 

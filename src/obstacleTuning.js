@@ -33,6 +33,7 @@ export const SWIMMER_TIERS = {
       "stage1-same-row-follow",
       "stage1-high-low",
       "stage1-low-high",
+      "center-gate",
       "stage1-diagonal"
     ]
   },
@@ -49,6 +50,7 @@ export const SWIMMER_TIERS = {
     schedule: [
       "stage2-staggered-diagonal",
       "stage2-sweeping-staircase",
+      "sweeping-staircase",
       "stage2-split-clusters",
       "stage2-dense-gate",
       "stage2-long-weave"
@@ -57,24 +59,33 @@ export const SWIMMER_TIERS = {
   4: {
     id: 4,
     name: "advanced",
-    contentStatus: "planned",
+    contentStatus: "ready",
     rowRelease: "progress",
     releaseProgress: 0.45,
     maxActivePerRow: 2,
     spawnDelaySeconds: 0.4,
     speed: 290,
-    schedule: []
+    schedule: [
+      "diagonal-weave",
+      "split-clusters",
+      "advanced-pressure-release",
+      "advanced-route-migration"
+    ]
   },
   5: {
     id: 5,
     name: "escalated",
-    contentStatus: "planned",
+    contentStatus: "ready",
     rowRelease: "progress",
     releaseProgress: 0.4,
     maxActivePerRow: 2,
     spawnDelaySeconds: 0.34,
     speed: 320,
-    schedule: []
+    schedule: [
+      "dense-finale",
+      "escalated-cross-pressure",
+      "escalated-endurance-weave"
+    ]
   }
 };
 

@@ -780,7 +780,7 @@ function gameStateAt(elapsedMs) {
 function gameOverEvent(diagnostics) {
   return {
     schemaVersion: "surf-run-diagnostics-v1",
-    gameVersion: "v0.10.1",
+    gameVersion: "v0.11.0",
     runId: diagnostics.runId,
     sequence: diagnostics.sequence + 1,
     elapsedSeconds: 1,

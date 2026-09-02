@@ -246,7 +246,7 @@ test("legacy compatibility keeps live encounter cadence metadata out of normal s
   assert.equal(manager.difficultyStage, 1);
 });
 
-test("legacy compatibility clamps overflow stages to tier 3 and never enters planned tiers", () => {
+test("legacy compatibility clamps overflow stages to tier 3 and never enters authored advanced tiers", () => {
   const manager = new EncounterManager();
   const controller = new RunController({ encounterManager: manager });
 

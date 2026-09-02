@@ -19,10 +19,14 @@ Tiers 1-5 are the currently defined tier set:
 | 1 | `foundation` | ready/playable | `180` | `0.78` | `fade` | `1.00` | `1` |
 | 2 | `weave` | ready/playable | `230` | `0.58` | `progress` | `0.60` | `2` |
 | 3 | `pressure` | ready/playable | `260` | `0.46` | `progress` | `0.50` | `2` |
-| 4 | `advanced` | planned/non-playable | `290` | `0.40` | `progress` | `0.45` | `2` |
-| 5 | `escalated` | planned/non-playable | `320` | `0.34` | `progress` | `0.40` | `2` |
+| 4 | `advanced` | ready/playable | `290` | `0.40` | `progress` | `0.45` | `2` |
+| 5 | `escalated` | ready/playable | `320` | `0.34` | `progress` | `0.40` | `2` |
 
-Tiers 1-3 currently contain playable schedules. Tiers 4-5 are defined only as future envelopes; they intentionally have no authored schedules yet and cannot be used by `SwimmerSection` until playable content is created. Tier 5 is not a permanent maximum, and `SWIMMER_TIERS` is intentionally extensible. Future Tier 6, Tier 7, Tier 8, and later envelopes may be added without redesigning `RunController`.
+Tiers 1-5 now contain validated swimmer-only schedules. Tier 4 contains advanced swimmer pressure patterns, and Tier 5 contains escalated swimmer pressure patterns. Both tiers are ready for authored `SwimmerSection` use.
+
+The finite Beta run is not activated yet. Without an authored run sequence, live compatibility gameplay still uses only the legacy three-stage cadence through Tier 3. Tier 4 and Tier 5 are available to authored sections but are not automatically entered by the default live run.
+
+Tier 5 is not terminal architecturally, and `SWIMMER_TIERS` is intentionally extensible. Future Tier 6, Tier 7, Tier 8, and later envelopes may be added without redesigning `RunController`.
 
 Adding a future tier should primarily require adding the tier definition, adding validated authored content, marking that tier playable when ready, and referencing it from authored `SwimmerSection` definitions.
 
@@ -34,9 +38,19 @@ The live game still uses the legacy three-stage compatibility cadence:
 | Stage 1 | Tier 2 |
 | Stage 2 | Tier 3 |
 
+Current swimmer-only schedules:
+
+- Tier 1: `opening-single-low`, `opening-single-high`, `opening-pair-wide`, `opening-gate-top`, `opening-gate-bottom`, `opening-single-center`
+- Tier 2: `stage1-alternating-openings`, `stage1-same-row-follow`, `stage1-high-low`, `stage1-low-high`, `center-gate`, `stage1-diagonal`
+- Tier 3: `stage2-staggered-diagonal`, `stage2-sweeping-staircase`, `sweeping-staircase`, `stage2-split-clusters`, `stage2-dense-gate`, `stage2-long-weave`
+- Tier 4: `diagonal-weave`, `split-clusters`, `advanced-pressure-release`, `advanced-route-migration`
+- Tier 5: `dense-finale`, `escalated-cross-pressure`, `escalated-endurance-weave`
+
 Normalized route progress is `0.0` at obstacle entry and `1.0` at the submerge endpoint. Lower release thresholds make patterns denser. Increase density first with row choices and `timeOffset`; raise speeds only after the route still validates.
 
-Tier 4 and Tier 5 numeric values are initial authoring ceilings. They should be playtested and tuned when their actual swimmer patterns, and any future deterministic kayak or waverunner blocker classes, are implemented.
+Tier 4 and Tier 5 numeric values are current swimmer-only authoring ceilings. They should continue to be playtested as the outside-testing Beta develops.
+
+Kayak and waverunner content is still deferred. Future vehicle patterns should expand Tier 4 and Tier 5 vocabulary rather than replacing the swimmer foundation.
 
 Higher tier numbers do not automatically mean just increasing speed. Difficulty should primarily come from pattern structure, spacing, cadence, sequencing, speed, controlled overlap, controlled row reuse, and new validated obstacle vocabulary where appropriate. Deterministic fairness and a viable route remain mandatory at every tier. Do not increase same-row stacking above two active swimmers, and do not use randomness or impossible walls to create pressure.
 
