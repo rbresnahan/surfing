@@ -25,8 +25,11 @@ import {
   isEventPlacementClear,
   isEventFair,
   ObstacleManager,
+  obstacleCollisionActive,
   obstacleOpacityForX,
+  obstacleRenderPresentation,
   obstacleRouteProgress,
+  obstacleRiseProgress,
   obstacleSinkForX,
   rowIsReleased,
   obstacleSpeedForTime,
@@ -265,7 +268,7 @@ test("dodge obstacle registry includes the current active dodge sprites", () => 
       "dodge-head",
       "dodge-noodle-girl",
       "dodge-noodle-man",
-      "dodge-scuba-man",
+      "dodge-scuba-man-water",
       "dodge-tube-girl",
       "dodge-tube-woman"
     ]
@@ -276,12 +279,34 @@ test("dodge obstacle registry includes the current active dodge sprites", () => 
       "dodge-head.png",
       "dodge-noodle-girl.png",
       "dodge-noodle-man.png",
-      "dodge-scuba-man.png",
+      "dodge-scuba-man-water.png",
       "dodge-tube-girl.png",
       "dodge-tube-woman.png"
     ]
   );
   assert.equal(DODGE_OBSTACLE_TYPES.every((type) => type.spawnWeight === 1), true);
+});
+
+test("scuba is explicitly registered as a reusable riser presentation", () => {
+  assert.deepEqual(SCUBA_MAN_TYPE.presentation, {
+    type: "riser",
+    riserAssetKey: "dodge-scuba-man-riser",
+    surfacedAssetKey: "dodge-scuba-man-water",
+    endRouteProgress: 0.18,
+    collisionActivationProgress: 0.85,
+    travelHeightRatio: 1
+  });
+  assert.deepEqual(SCUBA_MAN_TYPE.assetFiles, [
+    { assetKey: "dodge-scuba-man-riser", file: "dodge-scuba-man-riser.png" },
+    { assetKey: "dodge-scuba-man-water", file: "dodge-scuba-man-water.png" }
+  ]);
+});
+
+test("normal swimmers do not opt into riser presentation", () => {
+  for (const type of DODGE_OBSTACLE_TYPES.filter((type) => type.id !== "scuba-man")) {
+    assert.equal(type.presentation, null, type.id);
+    assert.deepEqual(type.assetFiles, [{ assetKey: type.assetKey, file: type.file }]);
+  }
 });
 
 test("each registered dodge obstacle keeps its own dimensions, spacing, and collision data", () => {
@@ -831,6 +856,170 @@ test("each dodge obstacle type carries its own collision configuration", () => {
   assert.notEqual(noodleMan.collisionWidth, scubaMan.collisionWidth);
 });
 
+test("riser progress is deterministic from the fixed horizontal route", () => {
+  const first = createDodgeObstacle(CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING, obstacleRowCenter(2), Math.random, SCUBA_MAN_TYPE, { row: 2 });
+  const second = createDodgeObstacle(CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING, obstacleRowCenter(2), Math.random, SCUBA_MAN_TYPE, { row: 2 });
+  const riseDistance = (first.routeStartX - first.routeEndX) * SCUBA_MAN_TYPE.presentation.endRouteProgress;
+
+  first.x -= riseDistance * 0.5;
+  second.x -= riseDistance * 0.5;
+
+  assertAlmostEqual(obstacleRiseProgress(first), 0.5);
+  assertAlmostEqual(obstacleRiseProgress(second), 0.5);
+  assert.deepEqual(obstacleRenderPresentation(first), obstacleRenderPresentation(second));
+});
+
+test("riser starts fully hidden and switches cleanly to the surfaced asset", () => {
+  const obstacle = createDodgeObstacle(CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING, obstacleRowCenter(2), Math.random, SCUBA_MAN_TYPE, { row: 2 });
+  const start = obstacleRenderPresentation(obstacle);
+
+  assert.equal(obstacleRiseProgress(obstacle), 0);
+  assert.equal(start.assetKey, "dodge-scuba-man-riser");
+  assert.equal(start.visibleRatio, 0);
+  assert.equal(start.clipHeight, obstacle.height);
+  assert.equal(start.offsetY, obstacle.height);
+
+  obstacle.x = obstacle.routeStartX - (obstacle.routeStartX - obstacle.routeEndX) * SCUBA_MAN_TYPE.presentation.endRouteProgress;
+  const surfaced = obstacleRenderPresentation(obstacle);
+
+  assert.equal(obstacleRiseProgress(obstacle), 1);
+  assert.equal(surfaced.assetKey, "dodge-scuba-man-water");
+  assert.equal(surfaced.clipHeight, obstacle.height);
+  assert.equal(surfaced.offsetY, 0);
+});
+
+test("intermediate riser drawing clips the emerging swimmer without moving the logical row", () => {
+  const obstacle = createDodgeObstacle(CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING, obstacleRowCenter(1), Math.random, SCUBA_MAN_TYPE, { row: 1 });
+  const riseDistance = (obstacle.routeStartX - obstacle.routeEndX) * SCUBA_MAN_TYPE.presentation.endRouteProgress;
+  obstacle.x -= riseDistance * 0.5;
+  const manager = new ObstacleManager();
+  const ctx = new FakeContext();
+  manager.activeEvent = fakeEventFromObstacles([obstacle]);
+
+  manager.draw(ctx, {
+    dodgeObstacles: {
+      "dodge-scuba-man-riser": image("dodge-scuba-man-riser"),
+      "dodge-scuba-man-water": image("dodge-scuba-man-water")
+    }
+  });
+
+  assert.equal(obstacle.y, obstacleRowCenter(1));
+  assert.equal(ctx.drawnImage.name, "dodge-scuba-man-riser");
+  assertAlmostEqual(ctx.clipRect.height, obstacle.height);
+  assertAlmostEqual(ctx.drawnY, ctx.clipRect.y + obstacle.height * 0.5);
+  assert.equal(ctx.drawnX + ctx.drawnWidth / 2, obstacle.x);
+});
+
+test("riser final presentation matches established surfaced scuba geometry", () => {
+  const obstacle = createDodgeObstacle(420, obstacleRowCenter(3), Math.random, SCUBA_MAN_TYPE, { row: 3 });
+  const manager = new ObstacleManager();
+  const ctx = new FakeContext();
+  manager.activeEvent = fakeEventFromObstacles([obstacle]);
+
+  manager.draw(ctx, {
+    dodgeObstacles: {
+      "dodge-scuba-man-riser": image("dodge-scuba-man-riser"),
+      "dodge-scuba-man-water": image("dodge-scuba-man-water")
+    }
+  });
+
+  assert.equal(obstacleRenderPresentation(obstacle).assetKey, "dodge-scuba-man-water");
+  assert.equal(ctx.drawnImage.name, "dodge-scuba-man-water");
+  assert.equal(ctx.drawnX + ctx.drawnWidth / 2, obstacle.x);
+  assert.equal(ctx.drawnY + ctx.drawnHeight / 2, obstacle.y);
+  assert.equal(dodgeObstacleVisibleBounds(obstacle).height, STANDARD_SWIMMER_VISIBLE_ALPHA_HEIGHT);
+});
+
+test("riser does not change logical row, y, horizontal trajectory, or speed", () => {
+  const manager = new ObstacleManager();
+  const obstacle = createDodgeObstacle(CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING, obstacleRowCenter(4), Math.random, SCUBA_MAN_TYPE, { row: 4 });
+  manager.activeEvent = fakeEventFromObstacles([obstacle], 200);
+
+  manager.update(0.25, 10, 300);
+
+  assert.equal(obstacle.row, 4);
+  assert.equal(obstacle.y, obstacleRowCenter(4));
+  assert.equal(obstacle.x, CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING - 50);
+  assert.equal(manager.activeEvent.speed, 200);
+});
+
+test("riser hitbox is absent before the collision threshold and normal after it", () => {
+  const manager = new ObstacleManager();
+  const obstacle = createDodgeObstacle(CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING, obstacleRowCenter(2), Math.random, SCUBA_MAN_TYPE, { row: 2 });
+  const riseDistance = (obstacle.routeStartX - obstacle.routeEndX) * SCUBA_MAN_TYPE.presentation.endRouteProgress;
+  manager.activeEvent = fakeEventFromObstacles([obstacle]);
+
+  obstacle.x = obstacle.routeStartX - riseDistance * 0.84;
+  assert.equal(obstacleCollisionActive(obstacle), false);
+  assert.deepEqual(manager.hitboxes(), []);
+
+  obstacle.x = obstacle.routeStartX - riseDistance * 0.85;
+  assert.equal(obstacleCollisionActive(obstacle), true);
+  assert.deepEqual(manager.hitboxes(), [
+    centeredTestRect(
+      obstacle.x,
+      obstacle.y,
+      obstacle.collisionWidth * obstacle.hitboxScaleX,
+      obstacle.collisionHeight * obstacle.hitboxScaleY
+    )
+  ]);
+});
+
+test("hidden riser still reserves placement and row release state", () => {
+  const hidden = createDodgeObstacle(CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING, obstacleRowCenter(2), Math.random, SCUBA_MAN_TYPE, { row: 2 });
+  const candidate = fakeEventFromObstacles([
+    createDodgeObstacle(CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING, obstacleRowCenter(2), Math.random, HEAD_TYPE, { row: 2 })
+  ]);
+
+  assert.equal(obstacleRiseProgress(hidden), 0);
+  assert.equal(isHeadVisiblyPresent(hidden), true);
+  assert.equal(isEventPlacementClear(candidate, [hidden]), false);
+  assert.equal(rowIsReleased(2, [hidden], stageTuning(1)), false);
+});
+
+test("scuba riser scoring and pattern completion still occur exactly once", () => {
+  const manager = new ObstacleManager();
+  const completed = [];
+  manager.activeEvent = createObstacleEvent({
+    surferY: 300,
+    elapsed: 0,
+    pattern: PATTERN_BY_ID["stage2-long-weave"],
+    difficultyStage: 2
+  });
+  manager.activeEvent.heads[0].x = CONFIG.OBSTACLE_SUBMERGE_END_X + 1;
+
+  assert.equal(manager.update(0.1, 130, 300, {
+    difficultyStage: 2,
+    onNormalEventResolved: (event) => completed.push(event.patternId)
+  }), 1);
+  assert.deepEqual(completed, ["stage2-long-weave"]);
+  assert.equal(manager.activeEvent, null);
+  assert.equal(manager.update(0.1, 131, 300, {
+    difficultyStage: 2,
+    onNormalEventResolved: (event) => completed.push(event.patternId)
+  }), 0);
+  assert.deepEqual(completed, ["stage2-long-weave"]);
+});
+
+test("reset and repeated riser spawns do not share mutable rise state", () => {
+  const manager = new ObstacleManager();
+  const first = createDodgeObstacle(CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING, obstacleRowCenter(2), Math.random, SCUBA_MAN_TYPE, { row: 2 });
+  const second = createDodgeObstacle(CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING, obstacleRowCenter(3), Math.random, SCUBA_MAN_TYPE, { row: 3 });
+  manager.activeEvent = fakeEventFromObstacles([first, second]);
+
+  first.x -= (first.routeStartX - first.routeEndX) * first.presentation.endRouteProgress;
+
+  assert.equal(obstacleRiseProgress(first), 1);
+  assert.equal(obstacleRiseProgress(second), 0);
+
+  manager.reset();
+  const next = createDodgeObstacle(CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING, obstacleRowCenter(2), Math.random, SCUBA_MAN_TYPE, { row: 2 });
+  manager.activeEvent = fakeEventFromObstacles([next]);
+
+  assert.equal(obstacleRiseProgress(next), 0);
+  assert.equal(manager.hitboxes().length, 0);
+});
+
 test("mixed obstacle groups respect the configured visual gap", () => {
   const head = createDodgeObstacle(400, 300, Math.random, HEAD_TYPE);
   const tubeWoman = createDodgeObstacle(
@@ -1037,6 +1226,15 @@ function assertAlmostEqual(actual, expected, epsilon = 1e-9) {
   assert.ok(Math.abs(actual - expected) <= epsilon, `${actual} did not equal ${expected}`);
 }
 
+function centeredTestRect(x, y, width, height) {
+  return {
+    x: x - width / 2,
+    y: y - height / 2,
+    width,
+    height
+  };
+}
+
 function maxSimultaneousSwimmers(pattern) {
   const counts = new Map();
   for (const obstacle of pattern.obstacles) {
@@ -1140,6 +1338,16 @@ class FakeContext {
   save() {}
 
   restore() {}
+
+  beginPath() {}
+
+  rect(x, y, width, height) {
+    this.clipRect = { x, y, width, height };
+  }
+
+  clip() {
+    this.clipped = true;
+  }
 
   drawImage(image, x, y, width, height) {
     this.drawnImage = image;

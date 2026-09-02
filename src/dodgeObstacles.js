@@ -1,5 +1,7 @@
 export const STANDARD_SWIMMER_VISIBLE_ALPHA_HEIGHT = 48;
 export const ROW_VISUAL_OVERLAP_TOLERANCE = 0.001;
+export const DEFAULT_RISER_COLLISION_ACTIVATION_PROGRESS = 0.85;
+export const DEFAULT_RISER_END_ROUTE_PROGRESS = 0.18;
 
 export const DODGE_OBSTACLE_TYPES = [
   createDodgeObstacleType({
@@ -34,13 +36,23 @@ export const DODGE_OBSTACLE_TYPES = [
   }),
   createDodgeObstacleType({
     id: "scuba-man",
-    assetKey: "dodge-scuba-man",
-    file: "dodge-scuba-man.png",
+    assetKey: "dodge-scuba-man-water",
+    file: "dodge-scuba-man-water.png",
     source: { width: 1536, height: 1024 },
     alpha: { x: 0, y: 13, width: 1516, height: 987 },
     targetVisibleAlphaHeight: STANDARD_SWIMMER_VISIBLE_ALPHA_HEIGHT,
     hitboxScale: { x: 0.6, y: 0.6 },
-    visualGap: { x: 20 }
+    visualGap: { x: 20 },
+    presentation: {
+      type: "riser",
+      riserAssetKey: "dodge-scuba-man-riser",
+      riserFile: "dodge-scuba-man-riser.png",
+      surfacedAssetKey: "dodge-scuba-man-water",
+      surfacedFile: "dodge-scuba-man-water.png",
+      endRouteProgress: DEFAULT_RISER_END_ROUTE_PROGRESS,
+      collisionActivationProgress: DEFAULT_RISER_COLLISION_ACTIVATION_PROGRESS,
+      travelHeightRatio: 1
+    }
   }),
   createDodgeObstacleType({
     id: "tube-girl",
@@ -97,7 +109,8 @@ function createDodgeObstacleType({
   renderOffsetX = 0,
   renderOffsetY = 0,
   hitboxScale,
-  visualGap
+  visualGap,
+  presentation = null
 }) {
   const sourceAspect = source.width / source.height;
   const height = targetVisibleAlphaHeight / (alpha.height / source.height);
@@ -107,10 +120,18 @@ function createDodgeObstacleType({
     height: targetVisibleAlphaHeight
   };
 
+  const assetFiles = presentation?.type === "riser"
+    ? [
+        { assetKey: presentation.riserAssetKey, file: presentation.riserFile },
+        { assetKey: presentation.surfacedAssetKey, file: presentation.surfacedFile }
+      ]
+    : [{ assetKey, file }];
+
   return {
     id,
     assetKey,
     file,
+    assetFiles,
     spawnWeight: 1,
     targetVisibleAlphaHeight,
     render: {
@@ -129,7 +150,20 @@ function createDodgeObstacleType({
       scaleX: hitboxScale.x,
       scaleY: hitboxScale.y
     },
-    visualGap
+    visualGap,
+    presentation: presentation ? createPresentationConfig(presentation) : null
+  };
+}
+
+function createPresentationConfig(presentation) {
+  if (presentation.type !== "riser") return { ...presentation };
+  return {
+    type: "riser",
+    riserAssetKey: presentation.riserAssetKey,
+    surfacedAssetKey: presentation.surfacedAssetKey,
+    endRouteProgress: presentation.endRouteProgress ?? DEFAULT_RISER_END_ROUTE_PROGRESS,
+    collisionActivationProgress: presentation.collisionActivationProgress ?? DEFAULT_RISER_COLLISION_ACTIVATION_PROGRESS,
+    travelHeightRatio: presentation.travelHeightRatio ?? 1
   };
 }
 
@@ -185,6 +219,7 @@ export function materializeDodgeObstacleGeometry(typeId) {
     visualGapX: type.visualGap.x,
     renderAnchor: type.render.anchor,
     renderOffsetX: type.render.offsetX,
-    renderOffsetY: type.render.offsetY
+    renderOffsetY: type.render.offsetY,
+    presentation: type.presentation ? { ...type.presentation } : null
   };
 }

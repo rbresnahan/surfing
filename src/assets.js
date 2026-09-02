@@ -114,10 +114,12 @@ export async function loadAssets() {
 }
 
 async function loadDodgeObstacles() {
+  const files = DODGE_OBSTACLE_TYPES.flatMap((type) => type.assetFiles ?? [{ assetKey: type.assetKey, file: type.file }]);
+  const uniqueFiles = new Map(files.map((entry) => [entry.assetKey, entry]));
   const entries = await Promise.all(
-    DODGE_OBSTACLE_TYPES.map(async (type) => [
-      type.assetKey,
-      await loadRequiredImage(`${ASSET_BASE}${type.file}`)
+    [...uniqueFiles.values()].map(async (entry) => [
+      entry.assetKey,
+      await loadRequiredImage(`${ASSET_BASE}${entry.file}`)
     ])
   );
 

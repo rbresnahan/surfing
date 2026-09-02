@@ -296,19 +296,19 @@ export class ObstacleManager {
   draw(ctx, assets) {
     for (const event of this.activeEvents) {
       for (const head of event.heads) {
-        drawObstacle(ctx, obstacleImage(assets, head), head);
+        drawObstacle(ctx, assets, head);
       }
     }
 
     for (const obstacle of this.encounterObstacles) {
-      drawObstacle(ctx, obstacleImage(assets, obstacle), obstacle);
+      drawObstacle(ctx, assets, obstacle);
     }
   }
 
   hitboxes() {
     const headHitboxes = this.activeEvents
       .flatMap((event) => event.heads
-        .filter((head) => !head.resolved && obstacleOpacityForX(head.x) > 0)
+        .filter((head) => !head.resolved && obstacleOpacityForX(head.x) > 0 && obstacleCollisionActive(head))
         .map((head) =>
           centeredRect(
             head.x,
@@ -339,7 +339,10 @@ export class ObstacleManager {
         y: head.y,
         row: head.row,
         patternId: head.patternId ?? event.patternId,
-        routeProgress: obstacleRouteProgress(head)
+        routeProgress: obstacleRouteProgress(head),
+        presentationType: head.presentation?.type ?? "normal",
+        riseProgress: obstacleRiseProgress(head),
+        collisionActive: obstacleCollisionActive(head)
       })));
     const encounterCenters = this.encounterObstacles
       .filter((obstacle) => !obstacle.resolved)
@@ -443,12 +446,18 @@ function updateObstacles(obstacles, dt, eventSpeed = null) {
   });
 }
 
-function drawObstacle(ctx, image, obstacle) {
+function drawObstacle(ctx, assets, obstacle) {
   const opacity = obstacleOpacityForX(obstacle.x);
-  if (!image || opacity <= 0) return;
+  if (opacity <= 0) return;
+  const presentation = obstacleRenderPresentation(obstacle);
+  const image = obstacleImage(assets, obstacle, presentation.assetKey);
+  if (!image || presentation.visibleRatio <= 0) return;
   const anchor = obstacle.renderAnchor ?? { x: 0.5, y: 0.5 };
   const offsetX = obstacle.renderOffsetX ?? 0;
   const offsetY = obstacle.renderOffsetY ?? 0;
+  const renderLeft = obstacle.x + offsetX - obstacle.width * anchor.x;
+  const renderTop = obstacle.y + offsetY - obstacle.height * anchor.y;
+  const sink = obstacleSinkForX(obstacle.x);
 
   const bob = obstacle.bobAmount
     ? Math.sin((obstacle.age ?? 0) * obstacle.bobSpeed + obstacle.bobOffset) * obstacle.bobAmount
@@ -456,23 +465,53 @@ function drawObstacle(ctx, image, obstacle) {
 
   ctx.save();
   ctx.globalAlpha = opacity;
+  if (presentation.offsetY > 0 || presentation.clipHeight < obstacle.height) {
+    ctx.beginPath?.();
+    ctx.rect?.(renderLeft, renderTop + sink + bob, obstacle.width, presentation.clipHeight);
+    ctx.clip?.();
+  }
   ctx.drawImage(
     image,
-    obstacle.x + offsetX - obstacle.width * anchor.x,
-    obstacle.y + offsetY - obstacle.height * anchor.y + obstacleSinkForX(obstacle.x) + bob,
+    renderLeft,
+    renderTop + presentation.offsetY + sink + bob,
     obstacle.width,
     obstacle.height
   );
   ctx.restore();
 }
 
-function obstacleImage(assets, obstacle) {
+export function obstacleRenderPresentation(obstacle) {
+  const presentation = obstacle.presentation;
+  if (presentation?.type !== "riser") {
+    return {
+      type: "normal",
+      assetKey: obstacle.assetKey,
+      progress: 1,
+      visibleRatio: 1,
+      offsetY: 0,
+      clipHeight: obstacle.height
+    };
+  }
+
+  const progress = obstacleRiseProgress(obstacle);
+  const travel = obstacle.height * (presentation.travelHeightRatio ?? 1);
+  return {
+    type: "riser",
+    assetKey: progress >= 1 ? presentation.surfacedAssetKey : presentation.riserAssetKey,
+    progress,
+    visibleRatio: progress,
+    offsetY: progress >= 1 ? 0 : travel * (1 - progress),
+    clipHeight: obstacle.height
+  };
+}
+
+function obstacleImage(assets, obstacle, assetKey = obstacle.assetKey) {
   const fallback = assets.dodgeObstacles?.[DODGE_OBSTACLE_TYPES[0].assetKey];
-  if (!obstacle.assetKey) return fallback;
-  return assets.dodgeObstacles?.[obstacle.assetKey] ??
-    assets.throwables?.[obstacle.assetKey] ??
-    assets.coolerToss?.[obstacle.assetKey] ??
-    assets[obstacle.assetKey] ??
+  if (!assetKey) return fallback;
+  return assets.dodgeObstacles?.[assetKey] ??
+    assets.throwables?.[assetKey] ??
+    assets.coolerToss?.[assetKey] ??
+    assets[assetKey] ??
     fallback;
 }
 
@@ -518,10 +557,11 @@ export function createDodgeObstacle(x, y, random = () => 0, type = selectDodgeOb
     visualGapX: type.visualGap.x,
     source: type.source,
     alpha: type.alpha,
+    presentation: type.presentation ? { ...type.presentation } : null,
     renderAnchor: type.render.anchor,
     renderOffsetX: type.render.offsetX,
     renderOffsetY: type.render.offsetY,
-    routeStartX: options.routeStartX ?? x,
+    routeStartX: options.routeStartX ?? CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING,
     routeEndX: CONFIG.OBSTACLE_SUBMERGE_END_X,
     resolved: false,
     counted: false
@@ -533,6 +573,19 @@ export function obstacleRouteProgress(obstacle) {
   const end = obstacle.routeEndX ?? CONFIG.OBSTACLE_SUBMERGE_END_X;
   const distance = Math.max(1, start - end);
   return Math.max(0, Math.min(1, (start - obstacle.x) / distance));
+}
+
+export function obstacleRiseProgress(obstacle) {
+  const presentation = obstacle.presentation;
+  if (presentation?.type !== "riser") return 1;
+  const endProgress = Math.max(0.001, presentation.endRouteProgress ?? 1);
+  return Math.max(0, Math.min(1, obstacleRouteProgress(obstacle) / endProgress));
+}
+
+export function obstacleCollisionActive(obstacle) {
+  const presentation = obstacle.presentation;
+  if (presentation?.type !== "riser") return true;
+  return obstacleRiseProgress(obstacle) + 1e-9 >= (presentation.collisionActivationProgress ?? 1);
 }
 
 export function rowIsReleased(row, activeHeads, stageConfig = stageTuning(0)) {

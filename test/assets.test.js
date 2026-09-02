@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { access, readdir } from "node:fs/promises";
+import { inflateSync } from "node:zlib";
+import { access, readFile, readdir } from "node:fs/promises";
 import { DODGE_OBSTACLE_TYPES } from "../src/dodgeObstacles.js";
 import { ATTACK_FISH_FILES, COOLER_TOSS_FILES, FISHERMAN_FILES, loadAssets, THROWABLE_FILES, WAVE_FRAME_FILES } from "../src/assets.js";
 
@@ -37,12 +38,13 @@ test("asset loader loads registered dodge obstacles", async () => {
       assert.ok(loadedSources.includes(`assets/${type.file}`));
     }
     assert.deepEqual(
-      DODGE_OBSTACLE_TYPES.map((type) => type.file).sort(),
+      DODGE_OBSTACLE_TYPES.flatMap((type) => type.assetFiles.map((entry) => entry.file)).sort(),
       [
         "dodge-head.png",
         "dodge-noodle-girl.png",
         "dodge-noodle-man.png",
-        "dodge-scuba-man.png",
+        "dodge-scuba-man-riser.png",
+        "dodge-scuba-man-water.png",
         "dodge-tube-girl.png",
         "dodge-tube-woman.png"
       ]
@@ -53,6 +55,52 @@ test("asset loader loads registered dodge obstacles", async () => {
   } finally {
     globalThis.Image = originalImage;
     globalThis.Audio = originalAudio;
+  }
+});
+
+test("asset loader preloads both explicit scuba riser assets", async () => {
+  const originalImage = globalThis.Image;
+  const originalAudio = globalThis.Audio;
+  const loadedSources = [];
+
+  globalThis.Image = class MockImage {
+    set src(value) {
+      loadedSources.push(value);
+      queueMicrotask(() => this.onload?.());
+    }
+  };
+  globalThis.Audio = undefined;
+
+  try {
+    const assets = await loadAssets();
+
+    assert.ok(assets.dodgeObstacles["dodge-scuba-man-riser"]);
+    assert.ok(assets.dodgeObstacles["dodge-scuba-man-water"]);
+    assert.equal(loadedSources.includes("assets/dodge-scuba-man-riser.png"), true);
+    assert.equal(loadedSources.includes("assets/dodge-scuba-man-water.png"), true);
+    assert.equal(loadedSources.includes("assets/dodge-scuba-man.png"), false);
+  } finally {
+    globalThis.Image = originalImage;
+    globalThis.Audio = originalAudio;
+  }
+});
+
+test("scuba riser source assets preserve transparent RGBA artwork", async () => {
+  for (const file of ["dodge-scuba-man-riser.png", "dodge-scuba-man-water.png"]) {
+    const png = await readRgbaPng(new URL(`../assets/${file}`, import.meta.url));
+
+    assert.equal(png.width, 1536, file);
+    assert.equal(png.height, 1024, file);
+    for (const [x, y] of [
+      [0, 0],
+      [png.width - 1, 0],
+      [0, png.height - 1],
+      [png.width - 1, png.height - 1]
+    ]) {
+      assert.equal(alphaAt(png, x, y), 0, `${file} corner ${x},${y}`);
+    }
+    assert.ok(png.pixels.some((value, index) => index % 4 === 3 && value > 0), `${file} has visible alpha`);
+    assert.ok(png.pixels.some((value, index) => index % 4 === 3 && value === 0), `${file} has transparent alpha`);
   }
 });
 
@@ -272,3 +320,76 @@ test("rowboat throwable assets do not use a normal dodge swimmer", () => {
   assert.equal(Object.values(THROWABLE_FILES).includes("dodge-noodle-man.png"), false);
   assert.equal(Object.keys(THROWABLE_FILES).includes("dodge-noodle-man"), false);
 });
+
+async function readRgbaPng(url) {
+  const buffer = await readFile(url);
+  assert.equal(buffer.toString("ascii", 1, 4), "PNG");
+  let offset = 8;
+  let width = 0;
+  let height = 0;
+  const idat = [];
+
+  while (offset < buffer.length) {
+    const length = buffer.readUInt32BE(offset);
+    const type = buffer.toString("ascii", offset + 4, offset + 8);
+    const dataStart = offset + 8;
+    const dataEnd = dataStart + length;
+    const data = buffer.subarray(dataStart, dataEnd);
+
+    if (type === "IHDR") {
+      width = data.readUInt32BE(0);
+      height = data.readUInt32BE(4);
+      assert.equal(data[8], 8, "PNG bit depth");
+      assert.equal(data[9], 6, "PNG color type");
+    } else if (type === "IDAT") {
+      idat.push(data);
+    } else if (type === "IEND") {
+      break;
+    }
+    offset = dataEnd + 4;
+  }
+
+  const raw = inflateSync(Buffer.concat(idat));
+  const bytesPerPixel = 4;
+  const stride = width * bytesPerPixel;
+  const pixels = Buffer.alloc(stride * height);
+  let input = 0;
+
+  for (let y = 0; y < height; y += 1) {
+    const filter = raw[input];
+    input += 1;
+    for (let x = 0; x < stride; x += 1) {
+      const current = raw[input + x];
+      const left = x >= bytesPerPixel ? pixels[y * stride + x - bytesPerPixel] : 0;
+      const up = y > 0 ? pixels[(y - 1) * stride + x] : 0;
+      const upLeft = y > 0 && x >= bytesPerPixel ? pixels[(y - 1) * stride + x - bytesPerPixel] : 0;
+      pixels[y * stride + x] = unfilter(filter, current, left, up, upLeft);
+    }
+    input += stride;
+  }
+
+  return { width, height, pixels };
+}
+
+function unfilter(filter, current, left, up, upLeft) {
+  if (filter === 0) return current;
+  if (filter === 1) return (current + left) & 0xff;
+  if (filter === 2) return (current + up) & 0xff;
+  if (filter === 3) return (current + Math.floor((left + up) / 2)) & 0xff;
+  if (filter === 4) return (current + paeth(left, up, upLeft)) & 0xff;
+  throw new Error(`Unsupported PNG filter: ${filter}`);
+}
+
+function paeth(left, up, upLeft) {
+  const estimate = left + up - upLeft;
+  const leftDistance = Math.abs(estimate - left);
+  const upDistance = Math.abs(estimate - up);
+  const upLeftDistance = Math.abs(estimate - upLeft);
+  if (leftDistance <= upDistance && leftDistance <= upLeftDistance) return left;
+  if (upDistance <= upLeftDistance) return up;
+  return upLeft;
+}
+
+function alphaAt(png, x, y) {
+  return png.pixels[(y * png.width + x) * 4 + 3];
+}
