@@ -464,11 +464,14 @@ test("diagnostics launcher and encounter controls are developer guarded", async 
   const windowScript = await readFile(new URL("../src/diagnosticsWindow.js", import.meta.url), "utf8");
   const html = await readFile(new URL("../diagnostics.html", import.meta.url), "utf8");
 
-  assert.equal(CONFIG.DEVELOPER_CONTROLS, false);
+  assert.equal(typeof CONFIG.DEVELOPER_CONTROLS, "boolean");
   assert.match(main, /function setupDiagnosticsControl\(\) \{\n  if \(!developerControlsEnabled\(\)\) return;/);
   assert.match(main, /function setupDeveloperDiagnosticsCommands\(\) \{\n  if \(!developerControlsEnabled\(\)\) return;/);
+  assert.match(main, /kind !== "developer-encounter-trigger"/);
+  assert.match(main, /kind === "developer-swimmer-tier-trigger"/);
   assert.match(windowScript, /if \(!developerControlsEnabled\(CONFIG\)\) \{/);
   assert.match(html, /id="encounter-controls"[^>]*hidden/);
+  assert.match(html, /id="swimmer-tier-controls"[^>]*hidden/);
 });
 
 function enabledDiagnostics() {

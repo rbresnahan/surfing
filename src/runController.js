@@ -1,6 +1,6 @@
 import { CONFIG } from "./config.js";
 import { SwimmerSection, validateSwimmerSections } from "./swimmerSection.js";
-import { stageTuning, swimmerTier } from "./obstacleTuning.js";
+import { SWIMMER_TIERS, stageTuning, swimmerTier } from "./obstacleTuning.js";
 
 export function legacyEndlessSwimmerSectionDefinition(tier = 1) {
   return {
@@ -22,6 +22,7 @@ export class RunController {
     this.sequenceDefinitions = sequence;
     this.legacyEncounterCadence = legacyEncounterCadence;
     this.completedEncounterIds = new Set();
+    this.debugSwimmerTierId = null;
     if (this.encounterManager) {
       const existingCallback = this.encounterManager.onEncounterCompleted;
       this.encounterManager.onEncounterCompleted = (encounter, gameState, details) => {
@@ -38,6 +39,7 @@ export class RunController {
     this.activeSwimmerSection = null;
     this.completed = false;
     this.completedEncounterIds = new Set();
+    this.debugSwimmerTierId = null;
     this.legacyTierId = stageTuning(CONFIG.DEBUG_START_STAGE ?? 0).tier;
     if (resetEncounters) this.encounterManager?.reset?.();
     if (this.encounterManager) this.encounterManager.difficultyStage = this.legacyTierId - 1;
@@ -58,7 +60,7 @@ export class RunController {
     }
 
     const normalEventsActive = (gameState.obstacles?.activeEvents?.length ?? 0) > 0;
-    if (this.encounterManager?.activeEncounter || !normalEventsActive) {
+    if (!this.isDebugSwimmerTierActive() && (this.encounterManager?.activeEncounter || !normalEventsActive)) {
       this.encounterManager?.update?.(dt, {
         ...gameState,
         runController: this
@@ -104,6 +106,90 @@ export class RunController {
 
   setLegacyTier(tierId, elapsedSeconds = 0) {
     this.startLegacyTier(tierId, elapsedSeconds);
+  }
+
+  triggerDebugSwimmerTier(tierId, gameState = {}, {
+    developerControlsEnabled = false,
+    gameRunning = false
+  } = {}) {
+    const elapsedSeconds = gameState.elapsedSeconds ?? 0;
+    const reject = (reason) => {
+      this.emit("swimmer_section.debug_trigger_rejected", {
+        elapsedSeconds,
+        tierId: Number.isInteger(tierId) ? tierId : null,
+        reason
+      });
+      return { ok: false, reason };
+    };
+
+    if (!developerControlsEnabled) return reject("developer-controls-disabled");
+    if (!gameRunning) return reject("no-running-game");
+    if (this.encounterManager?.activeEncounter) return reject("active-encounter");
+
+    const tier = SWIMMER_TIERS[tierId] ?? null;
+    if (!tier) return reject("unknown-tier");
+    if (tier.contentStatus !== "ready" || !Array.isArray(tier.schedule) || tier.schedule.length === 0) {
+      return reject("tier-not-playable");
+    }
+
+    if (this.encounterManager) this.encounterManager.nonScoringDebugRun = true;
+    this.activeSwimmerSection?.cleanup(elapsedSeconds, this.isDebugSwimmerTierActive() ? "debug-tier-switch" : "debug-tier-enter");
+    gameState.obstacles?.clearNormalEvents?.(elapsedSeconds, "debug-swimmer-tier-switch");
+    this.debugSwimmerTierId = tier.id;
+    this.activeSwimmerSection = new SwimmerSection(debugSwimmerSectionDefinition(tier.id), {
+      diagnostics: this.diagnostics
+    });
+    this.currentBlock = { type: "swimmers", id: this.activeSwimmerSection.id };
+    this.activeSwimmerSection.start(elapsedSeconds);
+    this.emit("swimmer_section.debug_trigger_accepted", {
+      elapsedSeconds,
+      tierId: tier.id,
+      sectionId: this.activeSwimmerSection.id
+    });
+    this.emit("run.block_started", {
+      elapsedSeconds,
+      blockIndex: this.currentBlockIndex,
+      blockType: "swimmers",
+      sectionId: this.activeSwimmerSection.id,
+      tierId: this.activeSwimmerSection.tierId
+    });
+    return { ok: true, reason: "accepted", tierId: tier.id };
+  }
+
+  stopDebugSwimmerTier(gameState = {}, {
+    developerControlsEnabled = false,
+    gameRunning = false
+  } = {}) {
+    const elapsedSeconds = gameState.elapsedSeconds ?? 0;
+    const reject = (reason) => {
+      this.emit("swimmer_section.debug_stop_rejected", {
+        elapsedSeconds,
+        tierId: this.debugSwimmerTierId,
+        reason
+      });
+      return { ok: false, reason };
+    };
+
+    if (!developerControlsEnabled) return reject("developer-controls-disabled");
+    if (!gameRunning) return reject("no-running-game");
+    if (!this.isDebugSwimmerTierActive()) return reject("live-run-active");
+
+    const stoppedTierId = this.debugSwimmerTierId;
+    if (this.encounterManager) this.encounterManager.nonScoringDebugRun = true;
+    this.activeSwimmerSection?.cleanup(elapsedSeconds, "debug-tier-return-live");
+    gameState.obstacles?.clearNormalEvents?.(elapsedSeconds, "debug-swimmer-tier-return-live");
+    this.debugSwimmerTierId = null;
+    this.startLegacySwimmerSection(elapsedSeconds);
+    this.emit("swimmer_section.debug_stop_accepted", {
+      elapsedSeconds,
+      tierId: stoppedTierId,
+      restoredTierId: this.legacyTierId
+    });
+    return { ok: true, reason: "accepted", tierId: stoppedTierId };
+  }
+
+  isDebugSwimmerTierActive() {
+    return this.debugSwimmerTierId !== null;
   }
 
   updateCompatibilityDifficultyMirror(tierId) {
@@ -203,12 +289,21 @@ export class RunController {
   cleanup(elapsedSeconds = 0, reason = "cleanup") {
     this.activeSwimmerSection?.cleanup(elapsedSeconds, reason);
     this.activeSwimmerSection = null;
+    this.debugSwimmerTierId = null;
     this.encounterManager?.cleanupActive?.({ elapsedSeconds });
   }
 
   emit(type, payload) {
     this.diagnostics?.emit(type, payload);
   }
+}
+
+export function debugSwimmerSectionDefinition(tier = 1) {
+  return {
+    id: `debug-tier-${tier}`,
+    tier,
+    completion: { type: "endless" }
+  };
 }
 
 export function validateRunSequence(sequence) {

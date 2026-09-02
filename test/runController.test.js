@@ -294,6 +294,116 @@ test("legacy compatibility waits for normal swimmers to drain before starting an
   assert.equal(encounter.started, 1);
 });
 
+test("debug swimmer tier trigger starts an endless real tier section and marks run non-scoring", () => {
+  const diagnostics = enabledDiagnostics();
+  const manager = new EncounterManager({ diagnostics });
+  const controller = new RunController({ encounterManager: manager, diagnostics });
+  const obstacles = new ObstacleManager({ diagnostics });
+
+  obstacles.spawnTimer = 0;
+  obstacles.update(0.01, 1, 300, controller.obstacleOptions());
+  assert.equal(obstacles.activeEvents.length, 1);
+
+  const result = controller.triggerDebugSwimmerTier(4, gameStateAt(12, obstacles), {
+    developerControlsEnabled: true,
+    gameRunning: true
+  });
+
+  assert.deepEqual(result, { ok: true, reason: "accepted", tierId: 4 });
+  assert.equal(controller.isDebugSwimmerTierActive(), true);
+  assert.equal(controller.activeSwimmerSection.id, "debug-tier-4");
+  assert.equal(controller.activeSwimmerSection.tierId, 4);
+  assert.equal(controller.activeSwimmerSection.completion.type, "endless");
+  assert.equal(controller.obstacleOptions().tierTuning.id, 4);
+  assert.equal(manager.nonScoringDebugRun, true);
+  assert.equal(obstacles.activeEvents.length, 0);
+  assert.deepEqual(
+    diagnostics.events.filter((event) => event.type === "object.dodge_awarded").map((event) => event.payload.reason),
+    []
+  );
+
+  obstacles.update(0.01, 13, 300, controller.obstacleOptions());
+  assert.equal(obstacles.activeEvent.patternId, "diagonal-weave");
+});
+
+test("debug swimmer tier switching clears previous swimmers and restarts the new tier schedule", () => {
+  const manager = new EncounterManager();
+  const controller = new RunController({ encounterManager: manager });
+  const obstacles = new ObstacleManager();
+
+  assert.equal(controller.triggerDebugSwimmerTier(4, gameStateAt(5, obstacles), {
+    developerControlsEnabled: true,
+    gameRunning: true
+  }).ok, true);
+  obstacles.update(0.01, 6, 300, controller.obstacleOptions());
+  assert.equal(obstacles.activeEvent.patternId, "diagonal-weave");
+
+  assert.deepEqual(controller.triggerDebugSwimmerTier(5, gameStateAt(7, obstacles), {
+    developerControlsEnabled: true,
+    gameRunning: true
+  }), { ok: true, reason: "accepted", tierId: 5 });
+
+  assert.equal(controller.activeSwimmerSection.id, "debug-tier-5");
+  assert.equal(obstacles.activeEvents.length, 0);
+  obstacles.update(0.01, 8, 300, controller.obstacleOptions());
+  assert.equal(obstacles.activeEvent.patternId, "dense-finale");
+});
+
+test("debug swimmer tier rejects invalid or unsafe triggers without throwing", () => {
+  const manager = new EncounterManager();
+  const controller = new RunController({ encounterManager: manager });
+  const activeEncounter = fakeEncounter({ id: "active", canStart: () => true });
+  manager.register(activeEncounter);
+
+  assert.deepEqual(controller.triggerDebugSwimmerTier(4, gameStateAt(1), {
+    developerControlsEnabled: false,
+    gameRunning: true
+  }), { ok: false, reason: "developer-controls-disabled" });
+  assert.deepEqual(controller.triggerDebugSwimmerTier(4, gameStateAt(1), {
+    developerControlsEnabled: true,
+    gameRunning: false
+  }), { ok: false, reason: "no-running-game" });
+  assert.deepEqual(controller.triggerDebugSwimmerTier(99, gameStateAt(1), {
+    developerControlsEnabled: true,
+    gameRunning: true
+  }), { ok: false, reason: "unknown-tier" });
+
+  manager.update(0.016, gameStateAt(10));
+  assert.deepEqual(controller.triggerDebugSwimmerTier(4, gameStateAt(11), {
+    developerControlsEnabled: true,
+    gameRunning: true
+  }), { ok: false, reason: "active-encounter" });
+  assert.equal(manager.activeEncounter, activeEncounter);
+});
+
+test("debug swimmer tier mode prevents scheduled encounters until returning live", () => {
+  const manager = new EncounterManager();
+  const encounter = fakeEncounter({
+    id: "scheduled",
+    canStart: () => true
+  });
+  manager.register(encounter);
+  const controller = new RunController({ encounterManager: manager });
+  const obstacles = new ObstacleManager();
+
+  assert.equal(controller.triggerDebugSwimmerTier(4, gameStateAt(1, obstacles), {
+    developerControlsEnabled: true,
+    gameRunning: true
+  }).ok, true);
+  controller.update(0.016, gameStateAt(2, obstacles));
+  assert.equal(encounter.started, 0);
+  assert.equal(manager.activeEncounter, null);
+
+  assert.deepEqual(controller.stopDebugSwimmerTier(gameStateAt(3, obstacles), {
+    developerControlsEnabled: true,
+    gameRunning: true
+  }), { ok: true, reason: "accepted", tierId: 4 });
+  assert.equal(controller.isDebugSwimmerTierActive(), false);
+  assert.equal(controller.activeSwimmerSection.id, "legacy-endless-swimmers");
+  controller.update(0.016, gameStateAt(4, obstacles));
+  assert.equal(encounter.started, 1);
+});
+
 function spawnAndResolve(obstacles, section) {
   obstacles.spawnTimer = 0;
   obstacles.update(0.01, 0, 300, section.obstacleOptions());

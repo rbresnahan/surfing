@@ -7,6 +7,7 @@ import {
   DIFFICULTY_STAGES,
   LEGACY_SWIMMER_TIER_IDS,
   SWIMMER_TIERS,
+  playableSwimmerTierCatalog,
   stageTuning,
   swimmerTier
 } from "../src/obstacleTuning.js";
@@ -138,6 +139,16 @@ test("tier architecture does not treat tier 5 as a permanent compatibility ceili
   assert.throws(() => swimmerTier(6), /Unknown swimmer tier/);
   assert.equal(stageTuning(999).tier, 3);
   assert.deepEqual(DIFFICULTY_STAGES.map((stage) => stage.tier), LEGACY_SWIMMER_TIER_IDS);
+});
+
+test("playable swimmer tier catalog is generated from ready authored tiers", () => {
+  assert.deepEqual(playableSwimmerTierCatalog(), [
+    { id: 1, name: "foundation", label: "Tier 1 - Foundation" },
+    { id: 2, name: "weave", label: "Tier 2 - Weave" },
+    { id: 3, name: "pressure", label: "Tier 3 - Pressure" },
+    { id: 4, name: "advanced", label: "Tier 4 - Advanced" },
+    { id: 5, name: "escalated", label: "Tier 5 - Escalated" }
+  ]);
 });
 
 test("pattern-count sections count completed events once and drain before completing", () => {

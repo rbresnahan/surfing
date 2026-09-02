@@ -372,6 +372,22 @@ export class ObstacleManager {
     }
   }
 
+  clearNormalEvents(elapsed = 0, reason = "cleanup") {
+    for (const event of this.activeEvents) {
+      for (const head of event.heads) {
+        if (head.counted) continue;
+        this.recordObjectEvent("object.removed", head, elapsed, {
+          objectType: "normal-obstacle",
+          reason
+        });
+        head.counted = true;
+        head.resolved = true;
+      }
+    }
+    this.activeEvents = [];
+    this.spawnTimer = 0;
+  }
+
   clearEncounterObstaclesBySource(source) {
     const removed = this.encounterObstacles.filter((obstacle) => obstacle.source === source);
     for (const obstacle of removed) {

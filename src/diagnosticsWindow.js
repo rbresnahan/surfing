@@ -21,7 +21,12 @@ const downloadButton = document.querySelector("#download-json");
 const encounterControls = document.querySelector("#encounter-controls");
 const encounterButtons = document.querySelector("#encounter-buttons");
 const encounterStatus = document.querySelector("#encounter-trigger-status");
+const swimmerTierControls = document.querySelector("#swimmer-tier-controls");
+const swimmerTierButtons = document.querySelector("#swimmer-tier-buttons");
+const swimmerTierStatus = document.querySelector("#swimmer-tier-status");
+const returnLiveRunButton = document.querySelector("#return-live-run");
 let diagnosticsChannel = null;
+let latestDeveloperState = null;
 
 copyButton.addEventListener("click", async () => {
   try {
@@ -51,11 +56,20 @@ try {
       return;
     }
     if (message.data?.kind === "developer-diagnostics-state") {
-      renderEncounterControls(message.data);
+      latestDeveloperState = message.data;
+      renderDeveloperControls(message.data);
       return;
     }
     if (message.data?.kind === "developer-encounter-trigger-result") {
       renderTriggerResult(message.data);
+      return;
+    }
+    if (message.data?.kind === "developer-swimmer-tier-trigger-result") {
+      renderSwimmerTierTriggerResult(message.data);
+      return;
+    }
+    if (message.data?.kind === "developer-swimmer-tier-stop-result") {
+      renderSwimmerTierStopResult(message.data);
     }
   });
 } catch {
@@ -107,22 +121,41 @@ function render() {
 function setupEncounterControls() {
   if (!developerControlsEnabled(CONFIG)) {
     encounterControls.hidden = true;
+    swimmerTierControls.hidden = true;
     return;
   }
 
   encounterControls.hidden = false;
+  swimmerTierControls.hidden = false;
   encounterStatus.textContent = "Waiting for game connection.";
+  swimmerTierStatus.textContent = "Waiting for game connection.";
+  returnLiveRunButton.addEventListener("click", () => {
+    const requestId = `swimmer-stop-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    swimmerTierStatus.textContent = "Requesting live run.";
+    postDeveloperMessage({
+      kind: "developer-swimmer-tier-stop",
+      requestId
+    });
+  });
   postDeveloperMessage({ kind: "developer-diagnostics-ready" });
 }
 
-function renderEncounterControls(message) {
+function renderDeveloperControls(message) {
   if (!message.developerControlsEnabled) {
     encounterControls.hidden = true;
+    swimmerTierControls.hidden = true;
     encounterButtons.replaceChildren();
+    swimmerTierButtons.replaceChildren();
     encounterStatus.textContent = "Developer controls are disabled.";
+    swimmerTierStatus.textContent = "Developer controls are disabled.";
     return;
   }
 
+  renderEncounterControls(message);
+  renderSwimmerTierControls(message);
+}
+
+function renderEncounterControls(message) {
   encounterControls.hidden = false;
   encounterButtons.replaceChildren();
   for (const encounter of message.encounters ?? []) {
@@ -148,15 +181,68 @@ function renderEncounterControls(message) {
   }
 }
 
+function renderSwimmerTierControls(message) {
+  swimmerTierControls.hidden = false;
+  swimmerTierButtons.replaceChildren();
+  for (const tier of message.swimmerTiers ?? []) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = `Play ${tier.label}`;
+    button.addEventListener("click", () => {
+      const requestId = `swimmer-tier-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      swimmerTierStatus.textContent = `Requesting ${tier.label}.`;
+      postDeveloperMessage({
+        kind: "developer-swimmer-tier-trigger",
+        requestId,
+        tierId: tier.id
+      });
+    });
+    swimmerTierButtons.appendChild(button);
+  }
+
+  const activeTier = (message.swimmerTiers ?? []).find((tier) => tier.id === message.activeDebugSwimmerTierId);
+  if (activeTier) {
+    swimmerTierStatus.textContent = `Active test: ${activeTier.label}.`;
+  } else if (swimmerTierButtons.childElementCount === 0) {
+    swimmerTierStatus.textContent = "No playable swimmer tiers available.";
+  } else {
+    swimmerTierStatus.textContent = "Live run active.";
+  }
+}
+
 function renderTriggerResult(message) {
   const labels = {
     accepted: "Encounter trigger accepted.",
     "no-running-game": "No game is actively running.",
     "active-encounter": "Another encounter is currently active.",
+    "active-swimmer-tier-test": "A swimmer tier test is currently active.",
     "unknown-encounter": "Encounter ID is unknown.",
     "developer-controls-disabled": "Developer controls are disabled."
   };
   encounterStatus.textContent = labels[message.reason] ?? `Encounter trigger rejected: ${message.reason}.`;
+}
+
+function renderSwimmerTierTriggerResult(message) {
+  const tier = (latestDeveloperState?.swimmerTiers ?? []).find((candidate) => candidate.id === message.tierId);
+  const labels = {
+    accepted: tier ? `Active test: ${tier.label}.` : "Swimmer tier test accepted.",
+    "developer-controls-disabled": "Developer controls are disabled.",
+    "no-running-game": "No game is actively running.",
+    "unknown-tier": "Swimmer tier ID is unknown.",
+    "tier-not-playable": "Swimmer tier is not playable.",
+    "active-encounter": "An encounter is currently active."
+  };
+  swimmerTierStatus.textContent = labels[message.reason] ?? `Swimmer tier trigger rejected: ${message.reason}.`;
+}
+
+function renderSwimmerTierStopResult(message) {
+  const labels = {
+    accepted: "Live run active.",
+    "developer-controls-disabled": "Developer controls are disabled.",
+    "no-running-game": "No game is actively running.",
+    "live-run-active": "Live run is already active."
+  };
+  swimmerTierStatus.textContent = labels[message.reason] ?? `Return to live run rejected: ${message.reason}.`;
 }
 
 function postDeveloperMessage(message) {

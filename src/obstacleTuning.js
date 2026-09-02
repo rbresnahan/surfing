@@ -139,10 +139,29 @@ export function assertPlayableSwimmerTier(tier, owner = `tier ${tier?.id ?? "unk
   return tier;
 }
 
+export function playableSwimmerTierCatalog() {
+  return Object.values(SWIMMER_TIERS)
+    .filter((tier) => tier.contentStatus === "ready" && Array.isArray(tier.schedule) && tier.schedule.length > 0)
+    .sort((a, b) => a.id - b.id)
+    .map((tier) => ({
+      id: tier.id,
+      name: tier.name,
+      label: `Tier ${tier.id} - ${titleCase(tier.name)}`
+    }));
+}
+
 export function tierForStage(stage) {
   return stageTuning(stage).tier;
 }
 
 export function stageTuning(stage) {
   return DIFFICULTY_STAGES[Math.max(0, Math.min(DIFFICULTY_STAGES.length - 1, Math.floor(stage)))] ?? DIFFICULTY_STAGES[0];
+}
+
+function titleCase(value) {
+  return String(value)
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 }

@@ -75,7 +75,8 @@ export class EncounterManager {
 
   triggerDebugEncounter(encounterId, gameState, {
     developerControlsEnabled = false,
-    gameRunning = false
+    gameRunning = false,
+    swimmerTierTestActive = false
   } = {}) {
     const reject = (reason) => {
       this.diagnostics?.emit("encounter.debug_trigger_rejected", {
@@ -88,6 +89,7 @@ export class EncounterManager {
 
     if (!developerControlsEnabled) return reject("developer-controls-disabled");
     if (!gameRunning) return reject("no-running-game");
+    if (swimmerTierTestActive || gameState?.runController?.isDebugSwimmerTierActive?.()) return reject("active-swimmer-tier-test");
     if (this.activeEncounter) return reject("active-encounter");
 
     const encounter = this.debugEncounterFactory?.(encounterId) ?? null;

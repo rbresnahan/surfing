@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
 import { CONFIG } from "../src/config.js";
+import { DiagnosticsSink } from "../src/diagnostics.js";
 import {
   DODGE_OBSTACLE_TYPES,
   STANDARD_SWIMMER_VISIBLE_ALPHA_HEIGHT,
@@ -242,6 +243,40 @@ test("no valid placement leaves no unintended partial group in the manager", () 
   });
 
   assert.equal(manager.activeEvent, null);
+});
+
+test("normal swimmer cleanup removes active events without scoring or touching encounter obstacles", () => {
+  const diagnostics = enabledDiagnostics();
+  diagnostics.startRun();
+  const manager = new ObstacleManager({ diagnostics });
+  manager.activeEvent = fakeEventFromObstacles([
+    createTestHead(500, obstacleRowCenter(2)),
+    createTestHead(540, obstacleRowCenter(4))
+  ]);
+  manager.recordNormalEventCreated(manager.activeEvent, 1);
+  manager.addObstacle({
+    source: "encounter",
+    assetKey: "item-bottle-water",
+    x: 800,
+    row: 2,
+    width: 40,
+    height: 40,
+    speed: 100
+  });
+
+  manager.clearNormalEvents(2, "debug-swimmer-tier-switch");
+
+  assert.equal(manager.activeEvents.length, 0);
+  assert.equal(manager.encounterObstacles.length, 1);
+  assert.equal(diagnostics.events.filter((event) => event.type === "object.dodge_awarded").length, 0);
+  assert.equal(
+    diagnostics.events.filter((event) =>
+      event.type === "object.removed" &&
+      event.objectType === "normal-obstacle" &&
+      event.payload.reason === "debug-swimmer-tier-switch"
+    ).length,
+    2
+  );
 });
 
 test("the navigable-path rule still rejects unfair obstacle layouts", () => {
@@ -1377,6 +1412,12 @@ function fakeEventFromObstacles(heads, speed = CONFIG.OBSTACLE_START_SPEED) {
 
 function createTestHead(x, y, type = HEAD_TYPE) {
   return createDodgeObstacle(x, y, Math.random, type);
+}
+
+function enabledDiagnostics() {
+  const diagnostics = new DiagnosticsSink({ channelFactory: () => ({ postMessage() {} }) });
+  diagnostics.enable();
+  return diagnostics;
 }
 
 function midpoint(a, b) {

@@ -6,6 +6,7 @@ import { DIAGNOSTIC_CHANNEL_NAME, createDiagnosticsSink } from "./diagnostics.js
 import { createEncounterManager, encounterCatalog } from "./encounterRegistry.js";
 import { Input } from "./input.js";
 import { ObstacleManager } from "./obstacles.js";
+import { playableSwimmerTierCatalog } from "./obstacleTuning.js";
 import { RunController } from "./runController.js";
 import { rectsOverlap } from "./collision.js";
 import { calculateScore, formatTime, loadRecords, saveRecords } from "./scoring.js";
@@ -94,7 +95,7 @@ function update(dt) {
       }
     });
     antiCamp.update(runDt, survivalTime, surfer, {
-      suspended: normalSpawnsPaused || encounters.activeEncounter !== null
+      suspended: normalSpawnsPaused || encounters.activeEncounter !== null || runController.isDebugSwimmerTierActive()
     });
     checkCollision();
   } else if (state === GameState.CRASHED) {
@@ -235,11 +236,42 @@ function setupDeveloperDiagnosticsCommands() {
       postDeveloperDiagnosticsState("ready");
       return;
     }
+    if (data.kind === "developer-swimmer-tier-trigger") {
+      const result = runController.triggerDebugSwimmerTier(data.tierId, buildEncounterGameState(), {
+        developerControlsEnabled: developerControlsEnabled(),
+        gameRunning: state === GameState.RUNNING
+      });
+
+      if (result.ok) {
+        antiCamp.reset(surfer, { elapsedSeconds: survivalTime, reason: "debug-swimmer-tier-trigger" });
+      }
+
+      postDeveloperSwimmerTierTriggerResult(data.requestId, result);
+      if (result.ok) postDeveloperDiagnosticsState("swimmer-tier-triggered");
+      return;
+    }
+
+    if (data.kind === "developer-swimmer-tier-stop") {
+      const result = runController.stopDebugSwimmerTier(buildEncounterGameState(), {
+        developerControlsEnabled: developerControlsEnabled(),
+        gameRunning: state === GameState.RUNNING
+      });
+
+      if (result.ok) {
+        antiCamp.reset(surfer, { elapsedSeconds: survivalTime, reason: "debug-swimmer-tier-stop" });
+      }
+
+      postDeveloperSwimmerTierStopResult(data.requestId, result);
+      if (result.ok) postDeveloperDiagnosticsState("swimmer-tier-stopped");
+      return;
+    }
+
     if (data.kind !== "developer-encounter-trigger") return;
 
     const result = encounters.triggerDebugEncounter(data.encounterId, buildEncounterGameState(), {
       developerControlsEnabled: developerControlsEnabled(),
-      gameRunning: state === GameState.RUNNING
+      gameRunning: state === GameState.RUNNING,
+      swimmerTierTestActive: runController.isDebugSwimmerTierActive()
     });
 
     if (result.ok) {
@@ -255,7 +287,9 @@ function postDeveloperDiagnosticsState(reason) {
     kind: "developer-diagnostics-state",
     reason,
     developerControlsEnabled: developerControlsEnabled(),
-    encounters: encounterCatalog()
+    encounters: encounterCatalog(),
+    swimmerTiers: playableSwimmerTierCatalog(),
+    activeDebugSwimmerTierId: runController.debugSwimmerTierId
   });
 }
 
@@ -266,6 +300,26 @@ function postDeveloperEncounterTriggerResult(requestId, result) {
     ok: result.ok,
     reason: result.reason,
     encounterId: result.encounterId ?? null
+  });
+}
+
+function postDeveloperSwimmerTierTriggerResult(requestId, result) {
+  postDeveloperMessage({
+    kind: "developer-swimmer-tier-trigger-result",
+    requestId,
+    ok: result.ok,
+    reason: result.reason,
+    tierId: result.tierId ?? null
+  });
+}
+
+function postDeveloperSwimmerTierStopResult(requestId, result) {
+  postDeveloperMessage({
+    kind: "developer-swimmer-tier-stop-result",
+    requestId,
+    ok: result.ok,
+    reason: result.reason,
+    tierId: result.tierId ?? null
   });
 }
 

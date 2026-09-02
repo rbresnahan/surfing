@@ -632,6 +632,25 @@ test("developer trigger rejects while another encounter is active", () => {
   assert.equal(manager.activeEncounter, first);
 });
 
+test("developer trigger rejects while a debug swimmer tier test is active", () => {
+  const manager = new EncounterManager({
+    debugEncounterFactory: () => fakeEncounter({ id: "debug" })
+  });
+
+  const result = manager.triggerDebugEncounter("debug", {
+    ...gameStateAt(20),
+    runController: {
+      isDebugSwimmerTierActive: () => true
+    }
+  }, {
+    developerControlsEnabled: true,
+    gameRunning: true
+  });
+
+  assert.deepEqual(result, { ok: false, reason: "active-swimmer-tier-test" });
+  assert.equal(manager.activeEncounter, null);
+});
+
 test("developer trigger can repeat the same encounter without scheduled bookkeeping leakage", () => {
   const instances = [];
   const scheduled = fakeEncounter({
