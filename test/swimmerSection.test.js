@@ -40,7 +40,7 @@ test("legacy stages map exactly to swimmer tiers 1 through 3", () => {
   assert.equal(stageTuning(99).tier, 3);
 });
 
-test("five swimmer tiers are authoritative authoring envelopes", () => {
+test("currently defined swimmer tiers are authoritative authoring envelopes", () => {
   assert.deepEqual(Object.keys(SWIMMER_TIERS).map(Number), [1, 2, 3, 4, 5]);
   assert.deepEqual(swimmerTier(1), {
     id: 1,
@@ -110,7 +110,7 @@ test("five swimmer tiers are authoritative authoring envelopes", () => {
   });
   assert.deepEqual(swimmerTier(5), {
     id: 5,
-    name: "expert",
+    name: "escalated",
     contentStatus: "planned",
     rowRelease: "progress",
     releaseProgress: 0.4,
@@ -119,6 +119,14 @@ test("five swimmer tiers are authoritative authoring envelopes", () => {
     speed: 320,
     schedule: []
   });
+});
+
+test("tier architecture does not treat tier 5 as a permanent compatibility ceiling", () => {
+  assert.equal(swimmerTier(5).name, "escalated");
+  assert.equal(swimmerTier(5).contentStatus, "planned");
+  assert.throws(() => swimmerTier(6), /Unknown swimmer tier/);
+  assert.equal(stageTuning(999).tier, 3);
+  assert.deepEqual(DIFFICULTY_STAGES.map((stage) => stage.tier), LEGACY_SWIMMER_TIER_IDS);
 });
 
 test("pattern-count sections count completed events once and drain before completing", () => {

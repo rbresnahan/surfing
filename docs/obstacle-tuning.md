@@ -8,11 +8,11 @@ To change an ordinary obstacle row, edit the `hit(row, timeOffset, typeId)` entr
 
 ## Swimmer Difficulty
 
-Swimmer difficulty is defined as five long-term authoring envelopes in `SWIMMER_TIERS`. A tier is the maximum permitted difficulty envelope for authored content. A `SwimmerSection` may soften that tier with overrides, but it must not exceed the tier ceiling.
+Swimmer difficulty is defined as the currently defined authoring envelopes in `SWIMMER_TIERS`. A tier is the maximum permitted difficulty envelope for authored content at that tier number. A `SwimmerSection` may soften that tier with overrides, but it must not exceed the tier ceiling.
 
 The authoritative six-row geometry remains unchanged. Rows are still the shared top-to-bottom rows `0` through `5`, and every authored pattern must use those rows and retain a validated viable route.
 
-Current tier envelopes:
+Tiers 1-5 are the currently defined tier set:
 
 | Tier | Name | Content | Speed | Spawn delay | Row release | Release progress | Max active per row |
 | --- | --- | --- | ---: | ---: | --- | ---: | ---: |
@@ -20,9 +20,11 @@ Current tier envelopes:
 | 2 | `weave` | ready/playable | `230` | `0.58` | `progress` | `0.60` | `2` |
 | 3 | `pressure` | ready/playable | `260` | `0.46` | `progress` | `0.50` | `2` |
 | 4 | `advanced` | planned/non-playable | `290` | `0.40` | `progress` | `0.45` | `2` |
-| 5 | `expert` | planned/non-playable | `320` | `0.34` | `progress` | `0.40` | `2` |
+| 5 | `escalated` | planned/non-playable | `320` | `0.34` | `progress` | `0.40` | `2` |
 
-Tiers 1-3 currently contain playable schedules. Tiers 4-5 are defined only as future envelopes; they intentionally have no authored schedules yet and cannot be used by `SwimmerSection` until playable content is created.
+Tiers 1-3 currently contain playable schedules. Tiers 4-5 are defined only as future envelopes; they intentionally have no authored schedules yet and cannot be used by `SwimmerSection` until playable content is created. Tier 5 is not a permanent maximum, and `SWIMMER_TIERS` is intentionally extensible. Future Tier 6, Tier 7, Tier 8, and later envelopes may be added without redesigning `RunController`.
+
+Adding a future tier should primarily require adding the tier definition, adding validated authored content, marking that tier playable when ready, and referencing it from authored `SwimmerSection` definitions.
 
 The live game still uses the legacy three-stage compatibility cadence:
 
@@ -36,7 +38,7 @@ Normalized route progress is `0.0` at obstacle entry and `1.0` at the submerge e
 
 Tier 4 and Tier 5 numeric values are initial authoring ceilings. They should be playtested and tuned when their actual swimmer patterns, and any future deterministic kayak or waverunner blocker classes, are implemented.
 
-Difficulty should primarily come from pattern structure, speed, spacing, cadence, sequencing, and controlled row reuse. Do not increase same-row stacking above two active swimmers, and do not use randomness or impossible walls to create pressure.
+Higher tier numbers do not automatically mean just increasing speed. Difficulty should primarily come from pattern structure, spacing, cadence, sequencing, speed, controlled overlap, controlled row reuse, and new validated obstacle vocabulary where appropriate. Deterministic fairness and a viable route remain mandatory at every tier. Do not increase same-row stacking above two active swimmers, and do not use randomness or impossible walls to create pressure.
 
 For readable two-row surfer openings, prefer adjacent open rows and avoid blocking all but one row at the same timestamp. Diagonal patterns should give the surfer enough horizontal travel time to move vertically between openings.
 

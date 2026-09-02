@@ -67,7 +67,7 @@ export const SWIMMER_TIERS = {
   },
   5: {
     id: 5,
-    name: "expert",
+    name: "escalated",
     contentStatus: "planned",
     rowRelease: "progress",
     releaseProgress: 0.4,
