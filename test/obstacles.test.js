@@ -35,7 +35,13 @@ import {
   obstacleSpeedForTime,
   spawnDelayForTime
 } from "../src/obstacles.js";
-import { DIFFICULTY_STAGES, SWIMMER_TIERS, stageTuning } from "../src/obstacleTuning.js";
+import {
+  DIFFICULTY_STAGES,
+  LEGACY_SWIMMER_TIER_IDS,
+  SWIMMER_TIERS,
+  stageTuning,
+  swimmerTier
+} from "../src/obstacleTuning.js";
 
 const HEAD_TYPE = getDodgeObstacleType("head");
 const NOODLE_GIRL_TYPE = getDodgeObstacleType("noodle-girl");
@@ -439,7 +445,8 @@ test("authored normal swimmer patterns never spawn more than two swimmers at one
 });
 
 test("scheduled tier 1-3 swimmer patterns never spawn more than two swimmers at one timestamp", () => {
-  for (const tier of Object.values(SWIMMER_TIERS)) {
+  for (const tierId of LEGACY_SWIMMER_TIER_IDS) {
+    const tier = SWIMMER_TIERS[tierId];
     for (const patternId of tier.schedule) {
       assert.ok(maxSimultaneousSwimmers(PATTERN_BY_ID[patternId]) <= 2, patternId);
     }
@@ -549,6 +556,17 @@ test("scheduled tier 1-3 patterns are runtime-valid with actual dodge sprite geo
   }
 });
 
+test("planned tier schedules cannot be used by the runtime obstacle path", () => {
+  for (const tier of [4, 5]) {
+    assert.equal(swimmerTier(tier).contentStatus, "planned");
+    assert.throws(() => createObstacleEvent({
+      surferY: 300,
+      elapsed: 0,
+      difficultyTier: tier
+    }), /does not yet have playable authored content/);
+  }
+});
+
 test("no gameplay RNG changes ordinary obstacle schedule", () => {
   const scheduler = new DeterministicObstacleScheduler();
   const event = scheduler.nextEvent({
@@ -562,6 +580,7 @@ test("no gameplay RNG changes ordinary obstacle schedule", () => {
 });
 
 test("stage row release tuning is centralized", () => {
+  assert.equal(DIFFICULTY_STAGES.length, 3);
   assert.deepEqual(DIFFICULTY_STAGES.map((stage) => stage.releaseProgress), [1, 0.6, 0.5]);
   assert.deepEqual(DIFFICULTY_STAGES.map((stage) => stage.maxActivePerRow), [1, 2, 2]);
   assert.equal(DIFFICULTY_STAGES[0].rowRelease, "fade");

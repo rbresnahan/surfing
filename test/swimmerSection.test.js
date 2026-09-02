@@ -3,7 +3,13 @@ import assert from "node:assert/strict";
 import { DiagnosticsSink } from "../src/diagnostics.js";
 import { CONFIG } from "../src/config.js";
 import { ObstacleManager } from "../src/obstacles.js";
-import { DIFFICULTY_STAGES, SWIMMER_TIERS, stageTuning, swimmerTier } from "../src/obstacleTuning.js";
+import {
+  DIFFICULTY_STAGES,
+  LEGACY_SWIMMER_TIER_IDS,
+  SWIMMER_TIERS,
+  stageTuning,
+  swimmerTier
+} from "../src/obstacleTuning.js";
 import {
   SwimmerSection,
   buildEffectiveTier,
@@ -12,6 +18,10 @@ import {
 } from "../src/swimmerSection.js";
 
 test("legacy stages map exactly to swimmer tiers 1 through 3", () => {
+  assert.deepEqual(Object.keys(SWIMMER_TIERS), ["1", "2", "3", "4", "5"]);
+  assert.deepEqual(LEGACY_SWIMMER_TIER_IDS, [1, 2, 3]);
+  assert.equal(DIFFICULTY_STAGES.length, 3);
+
   for (const stage of DIFFICULTY_STAGES) {
     const tier = swimmerTier(stage.tier);
     assert.equal(stage.id, tier.legacyStage);
@@ -23,10 +33,92 @@ test("legacy stages map exactly to swimmer tiers 1 through 3", () => {
     assert.deepEqual(stage.schedule, tier.schedule);
   }
 
-  assert.deepEqual(Object.keys(SWIMMER_TIERS), ["1", "2", "3"]);
   assert.equal(stageTuning(0).tier, 1);
   assert.equal(stageTuning(1).tier, 2);
   assert.equal(stageTuning(2).tier, 3);
+  assert.equal(stageTuning(3).tier, 3);
+  assert.equal(stageTuning(99).tier, 3);
+});
+
+test("five swimmer tiers are authoritative authoring envelopes", () => {
+  assert.deepEqual(Object.keys(SWIMMER_TIERS).map(Number), [1, 2, 3, 4, 5]);
+  assert.deepEqual(swimmerTier(1), {
+    id: 1,
+    legacyStage: 0,
+    name: "foundation",
+    contentStatus: "ready",
+    rowRelease: "fade",
+    releaseProgress: 1,
+    maxActivePerRow: 1,
+    spawnDelaySeconds: 0.78,
+    speed: 180,
+    schedule: [
+      "opening-single-low",
+      "opening-single-high",
+      "opening-pair-wide",
+      "opening-gate-top",
+      "opening-gate-bottom",
+      "opening-single-center"
+    ]
+  });
+  assert.deepEqual(swimmerTier(2), {
+    id: 2,
+    legacyStage: 1,
+    name: "weave",
+    contentStatus: "ready",
+    rowRelease: "progress",
+    releaseProgress: 0.6,
+    maxActivePerRow: 2,
+    spawnDelaySeconds: 0.58,
+    speed: 230,
+    schedule: [
+      "stage1-alternating-openings",
+      "stage1-same-row-follow",
+      "stage1-high-low",
+      "stage1-low-high",
+      "stage1-diagonal"
+    ]
+  });
+  assert.deepEqual(swimmerTier(3), {
+    id: 3,
+    legacyStage: 2,
+    name: "pressure",
+    contentStatus: "ready",
+    rowRelease: "progress",
+    releaseProgress: 0.5,
+    maxActivePerRow: 2,
+    spawnDelaySeconds: 0.46,
+    speed: 260,
+    schedule: [
+      "stage2-staggered-diagonal",
+      "stage2-sweeping-staircase",
+      "stage2-split-clusters",
+      "stage2-dense-gate",
+      "stage2-long-weave"
+    ]
+  });
+  assert.deepEqual(swimmerTier(4), {
+    id: 4,
+    name: "advanced",
+    contentStatus: "planned",
+    rowRelease: "progress",
+    releaseProgress: 0.45,
+    maxActivePerRow: 2,
+    spawnDelaySeconds: 0.4,
+    speed: 290,
+    schedule: []
+  });
+  assert.deepEqual(swimmerTier(5), {
+    id: 5,
+    name: "expert",
+    contentStatus: "planned",
+    rowRelease: "progress",
+    releaseProgress: 0.4,
+    maxActivePerRow: 2,
+    spawnDelaySeconds: 0.34,
+    speed: 320,
+    schedule: []
+  });
 });
 
 test("pattern-count sections count completed events once and drain before completing", () => {
@@ -118,10 +210,10 @@ test("same section and tier reset deterministic pattern order", () => {
 });
 
 test("section validation rejects invalid authoring clearly", () => {
-  for (const valid of [1, 2, 3]) {
+  for (const valid of [1, 2, 3, 4, 5]) {
     assert.equal(swimmerTier(valid).id, valid);
   }
-  for (const invalid of [2.5, 0, 4, "2", null, undefined, NaN, Infinity]) {
+  for (const invalid of [2.5, 0, 6, "2", null, undefined, NaN, Infinity]) {
     assert.throws(() => swimmerTier(invalid), /Unknown swimmer tier/);
   }
   assert.throws(() => validateSwimmerSectionDefinition({
@@ -165,6 +257,23 @@ test("section validation rejects invalid authoring clearly", () => {
     { id: "repeat", tier: 1, completion: { type: "endless" } },
     { id: "repeat", tier: 1, completion: { type: "endless" } }
   ]), /Duplicate swimmer section id/);
+});
+
+test("planned swimmer tiers cannot enter gameplay before content is authored", () => {
+  for (const tier of [4, 5]) {
+    assert.equal(swimmerTier(tier).contentStatus, "planned");
+    assert.deepEqual(swimmerTier(tier).schedule, []);
+    assert.throws(() => validateSwimmerSectionDefinition({
+      id: `planned-tier-${tier}`,
+      tier,
+      completion: { type: "endless" }
+    }), /does not yet have playable authored content/);
+    assert.throws(() => new SwimmerSection({
+      id: `planned-tier-${tier}`,
+      tier,
+      completion: { type: "endless" }
+    }), /does not yet have playable authored content/);
+  }
 });
 
 test("shouldSchedule reflects active scheduling state for endless and finite sections", () => {

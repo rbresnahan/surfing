@@ -1,6 +1,6 @@
 import { PATTERN_BY_ID } from "./obstaclePatterns.js";
 import { DeterministicObstacleScheduler } from "./obstacles.js";
-import { swimmerTier } from "./obstacleTuning.js";
+import { assertPlayableSwimmerTier, swimmerTier } from "./obstacleTuning.js";
 
 const COMPLETION_TYPES = new Set(["patterns", "activeDuration", "endless"]);
 const OVERRIDABLE_TUNING_FIELDS = new Set([
@@ -190,6 +190,7 @@ export function validateSwimmerSectionDefinition(definition) {
   if (!definition || typeof definition !== "object") throw new Error("Swimmer section definition is required");
   if (!definition.id || typeof definition.id !== "string") throw new Error("Swimmer section id is required");
   const tier = swimmerTier(definition.tier);
+  validatePlayableTier(definition, tier);
   const completion = definition.completion;
   if (!completion || typeof completion !== "object") throw new Error(`${definition.id}: completion is required`);
   if (!COMPLETION_TYPES.has(completion.type)) throw new Error(`${definition.id}: invalid completion type ${completion.type}`);
@@ -225,6 +226,10 @@ export function buildEffectiveTier(definition) {
     schedule: definition.patternIds ? [...definition.patternIds] : [...tier.schedule],
     ...(definition.tuning ?? {})
   };
+}
+
+function validatePlayableTier(definition, tier) {
+  assertPlayableSwimmerTier(tier, definition.id);
 }
 
 function validatePatternSubset(definition, tier) {

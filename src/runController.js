@@ -1,6 +1,6 @@
 import { CONFIG } from "./config.js";
 import { SwimmerSection, validateSwimmerSections } from "./swimmerSection.js";
-import { swimmerTier } from "./obstacleTuning.js";
+import { stageTuning, swimmerTier } from "./obstacleTuning.js";
 
 export function legacyEndlessSwimmerSectionDefinition(tier = 1) {
   return {
@@ -38,7 +38,7 @@ export class RunController {
     this.activeSwimmerSection = null;
     this.completed = false;
     this.completedEncounterIds = new Set();
-    this.legacyTierId = CONFIG.DEBUG_START_STAGE === null ? 1 : CONFIG.DEBUG_START_STAGE + 1;
+    this.legacyTierId = stageTuning(CONFIG.DEBUG_START_STAGE ?? 0).tier;
     if (resetEncounters) this.encounterManager?.reset?.();
     if (this.encounterManager) this.encounterManager.difficultyStage = this.legacyTierId - 1;
     if (this.sequenceDefinitions) {
@@ -107,7 +107,7 @@ export class RunController {
   }
 
   updateCompatibilityDifficultyMirror(tierId) {
-    const tier = swimmerTier(tierId);
+    const tier = swimmerTier(stageTuning(tierId - 1).tier);
     this.legacyTierId = tier.id;
     if (this.encounterManager) this.encounterManager.difficultyStage = tier.id - 1;
     return tier;

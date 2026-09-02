@@ -2,7 +2,8 @@ export const SWIMMER_TIERS = {
   1: {
     id: 1,
     legacyStage: 0,
-    name: "opening",
+    name: "foundation",
+    contentStatus: "ready",
     rowRelease: "fade",
     releaseProgress: 1,
     maxActivePerRow: 1,
@@ -20,7 +21,8 @@ export const SWIMMER_TIERS = {
   2: {
     id: 2,
     legacyStage: 1,
-    name: "first-clear",
+    name: "weave",
+    contentStatus: "ready",
     rowRelease: "progress",
     releaseProgress: 0.6,
     maxActivePerRow: 2,
@@ -37,7 +39,8 @@ export const SWIMMER_TIERS = {
   3: {
     id: 3,
     legacyStage: 2,
-    name: "cooler-clear",
+    name: "pressure",
+    contentStatus: "ready",
     rowRelease: "progress",
     releaseProgress: 0.5,
     maxActivePerRow: 2,
@@ -50,14 +53,41 @@ export const SWIMMER_TIERS = {
       "stage2-dense-gate",
       "stage2-long-weave"
     ]
+  },
+  4: {
+    id: 4,
+    name: "advanced",
+    contentStatus: "planned",
+    rowRelease: "progress",
+    releaseProgress: 0.45,
+    maxActivePerRow: 2,
+    spawnDelaySeconds: 0.4,
+    speed: 290,
+    schedule: []
+  },
+  5: {
+    id: 5,
+    name: "expert",
+    contentStatus: "planned",
+    rowRelease: "progress",
+    releaseProgress: 0.4,
+    maxActivePerRow: 2,
+    spawnDelaySeconds: 0.34,
+    speed: 320,
+    schedule: []
   }
 };
 
-export const DIFFICULTY_STAGES = Object.values(SWIMMER_TIERS).map((tier) => ({
-  ...tier,
-  id: tier.legacyStage,
-  tier: tier.id
-}));
+export const LEGACY_SWIMMER_TIER_IDS = [1, 2, 3];
+
+export const DIFFICULTY_STAGES = LEGACY_SWIMMER_TIER_IDS.map((tierId) => {
+  const tier = SWIMMER_TIERS[tierId];
+  return {
+    ...tier,
+    id: tier.legacyStage,
+    tier: tier.id
+  };
+});
 
 export const PATTERN_SCHEDULE = DIFFICULTY_STAGES.flatMap((stage) =>
   stage.schedule.map((patternId, index) => ({
@@ -87,6 +117,13 @@ export function swimmerTier(tierId) {
   const tier = SWIMMER_TIERS[tierId];
   if (!tier) {
     throw new Error(`Unknown swimmer tier: ${tierId}`);
+  }
+  return tier;
+}
+
+export function assertPlayableSwimmerTier(tier, owner = `tier ${tier?.id ?? "unknown"}`) {
+  if (tier?.contentStatus !== "ready" || !Array.isArray(tier.schedule) || tier.schedule.length === 0) {
+    throw new Error(`${owner}: tier ${tier?.id ?? "unknown"} does not yet have playable authored content`);
   }
   return tier;
 }

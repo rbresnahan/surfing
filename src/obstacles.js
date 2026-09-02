@@ -10,7 +10,7 @@ import {
 import { obstacleRowCenter, isValidObstacleRow, nearestObstacleRow } from "./rowGeometry.js";
 import { instantiatePattern, PATTERN_BY_ID } from "./obstaclePatterns.js";
 import { validateObstacleTimeline } from "./patternValidator.js";
-import { PATTERN_SCHEDULE, stageTuning, swimmerTier } from "./obstacleTuning.js";
+import { assertPlayableSwimmerTier, PATTERN_SCHEDULE, stageTuning, swimmerTier } from "./obstacleTuning.js";
 
 export function obstacleSpeedForTime(seconds) {
   const t = Math.max(0, Math.min(1, seconds / CONFIG.DIFFICULTY_RAMP_SECONDS));
@@ -672,9 +672,9 @@ function patternRowsAvailable(pattern, activeHeads, stageConfig) {
 }
 
 function resolveTuning({ difficultyStage = 0, difficultyTier = null, tierTuning = null } = {}) {
-  if (tierTuning) return tierTuning;
-  if (difficultyTier !== null && difficultyTier !== undefined) return swimmerTier(difficultyTier);
-  return stageTuning(difficultyStage);
+  const tuning = tierTuning ??
+    (difficultyTier !== null && difficultyTier !== undefined ? swimmerTier(difficultyTier) : stageTuning(difficultyStage));
+  return assertPlayableSwimmerTier(tuning);
 }
 
 function updateEventThreat(event) {

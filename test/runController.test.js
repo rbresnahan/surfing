@@ -246,6 +246,30 @@ test("legacy compatibility keeps live encounter cadence metadata out of normal s
   assert.equal(manager.difficultyStage, 1);
 });
 
+test("legacy compatibility clamps overflow stages to tier 3 and never enters planned tiers", () => {
+  const manager = new EncounterManager();
+  const controller = new RunController({ encounterManager: manager });
+
+  assert.equal(controller.activeSwimmerSection.tierId, 1);
+  assert.equal(controller.obstacleOptions().tierTuning.id, 1);
+  assert.equal(manager.difficultyStage, 0);
+
+  controller.setLegacyTier(2, 10);
+  assert.equal(controller.activeSwimmerSection.tierId, 2);
+  assert.equal(controller.obstacleOptions().tierTuning.id, 2);
+  assert.equal(manager.difficultyStage, 1);
+
+  controller.setLegacyTier(3, 20);
+  assert.equal(controller.activeSwimmerSection.tierId, 3);
+  assert.equal(controller.obstacleOptions().tierTuning.id, 3);
+  assert.equal(manager.difficultyStage, 2);
+
+  controller.setLegacyTier(4, 30);
+  assert.equal(controller.activeSwimmerSection.tierId, 3);
+  assert.equal(controller.obstacleOptions().tierTuning.id, 3);
+  assert.equal(manager.difficultyStage, 2);
+});
+
 test("legacy compatibility waits for normal swimmers to drain before starting an encounter", () => {
   const manager = new EncounterManager();
   const encounter = fakeEncounter({
