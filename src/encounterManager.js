@@ -250,7 +250,9 @@ export class EncounterManager {
         encounterType: encounter.id,
         owner: occurrenceId,
         startTimeMs: encounter.startTimeMs ?? null,
-        type: encounter.type ?? null
+        type: encounter.type ?? null,
+        handoffToNext: encounter.handoffToNext === true,
+        immediateSuccessorId: encounter.immediateSuccessorId ?? null
       });
     }
   }

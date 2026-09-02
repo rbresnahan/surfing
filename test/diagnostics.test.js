@@ -151,6 +151,26 @@ test("back-to-back same-type encounters keep fresh state and correct ownership",
   assert.equal(createDiagnosticsReport([...diagnostics.events, gameOverEvent(diagnostics)]).summary.maxActiveEncounters, 1);
 });
 
+test("scheduled diagnostics retain encounter handoff metadata per occurrence", () => {
+  const diagnostics = enabledDiagnostics();
+  diagnostics.startRun();
+  const manager = new EncounterManager({ diagnostics });
+  manager.register(fakeEncounter({ id: "angry-fisherman-cooler" }));
+  manager.register(fakeEncounter({
+    id: "angry-fisherman-cooler",
+    handoffToNext: true,
+    immediateSuccessorId: "angry-fisherman-cooler-toss"
+  }));
+  manager.scheduleRegisteredEncounters();
+
+  const scheduled = diagnostics.events
+    .filter((event) => event.type === "encounter.scheduled" && event.encounterType === "angry-fisherman-cooler");
+
+  assert.equal(scheduled.length, 2);
+  assert.deepEqual(scheduled.map((event) => event.payload.handoffToNext), [false, true]);
+  assert.deepEqual(scheduled.map((event) => event.payload.immediateSuccessorId), [null, "angry-fisherman-cooler-toss"]);
+});
+
 test("phase transitions are recorded", () => {
   const diagnostics = enabledDiagnostics();
   diagnostics.startRun();
@@ -288,6 +308,35 @@ test("report detects normal-spawn suppression violation", () => {
   assert.equal(report.summary.normalSpawnViolationCount, 1);
 });
 
+test("report accepts configured cooler handoff completion without an exit phase", () => {
+  const report = createDiagnosticsReport(coolerLifecycleEvents({
+    handoffToNext: true,
+    immediateSuccessorId: "angry-fisherman-cooler-toss",
+    phases: ["between-waves", "complete"]
+  }));
+
+  assert.equal(phaseLifecycleStatus(report), "pass");
+  assert.equal(report.encounterRecords[0].handoffToNext, true);
+  assert.equal(report.encounterRecords[0].immediateSuccessorId, "angry-fisherman-cooler-toss");
+});
+
+test("report rejects ordinary cooler completion that skips the exit phase", () => {
+  const report = createDiagnosticsReport(coolerLifecycleEvents({
+    phases: ["between-waves", "complete"]
+  }));
+
+  assert.equal(phaseLifecycleStatus(report), "fail");
+});
+
+test("report accepts the cooler toss lifecycle phases", () => {
+  const report = createDiagnosticsReport(coolerLifecycleEvents({
+    encounterType: "angry-fisherman-cooler-toss",
+    phases: ["holding", "windup", "throwing", "post-throw", "exiting", "complete"]
+  }));
+
+  assert.equal(phaseLifecycleStatus(report), "pass");
+});
+
 test("report detects leaked owned objects", () => {
   const events = validRunEvents();
   events[9] = diagnosticEvent(10, "encounter.cleanup_finished", {
@@ -388,6 +437,8 @@ function fakeEncounter(options = {}) {
     id: options.id ?? "fake",
     type: options.type ?? "major",
     exclusive: true,
+    handoffToNext: options.handoffToNext ?? false,
+    immediateSuccessorId: options.immediateSuccessorId ?? null,
     pauseNormalSpawns: options.pauseNormalSpawns ?? false,
     postEncounterGraceSeconds: options.postEncounterGraceSeconds ?? 0,
     difficultyStageOnComplete: null,
@@ -577,6 +628,44 @@ function validRunEvents() {
     diagnosticEvent(10, "encounter.cleanup_finished", { occurrenceId: "enc-1", encounterType: "repeat", owner: "enc-1", remainingOwnedObjects: 0 }),
     diagnosticEvent(11, "game.over", { finalScore: 500, headsDodged: 1, survivalTime: 5 })
   ];
+}
+
+function coolerLifecycleEvents({
+  encounterType = "angry-fisherman-cooler",
+  handoffToNext = false,
+  immediateSuccessorId = null,
+  phases
+}) {
+  return [
+    diagnosticEvent(1, "game.start", {
+      config: {
+        encountersEnabled: true,
+        encounterSequence: [{ id: encounterType }]
+      },
+      encounterSequence: [{ id: encounterType }],
+      deterministicSeed: null
+    }),
+    diagnosticEvent(2, "encounter.scheduled", {
+      occurrenceId: "enc-1",
+      encounterType,
+      owner: "enc-1",
+      handoffToNext,
+      immediateSuccessorId
+    }),
+    ...phases.map((phase, index) => diagnosticEvent(3 + index, "encounter.phase_transition", {
+      occurrenceId: "enc-1",
+      encounterType,
+      owner: "enc-1",
+      to: phase
+    })),
+    diagnosticEvent(20, "game.over", { finalScore: 500, headsDodged: 0, survivalTime: 5 })
+  ];
+}
+
+function phaseLifecycleStatus(report) {
+  return report.invariantResults.find((check) =>
+    check.name === "Phase transitions follow the observed lifecycle order"
+  ).status;
 }
 
 function gameOverEvent(diagnostics) {

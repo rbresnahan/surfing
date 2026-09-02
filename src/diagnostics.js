@@ -12,10 +12,12 @@ const VALID_PHASES = new Set([
   "entering",
   "positioning",
   "moving-to-lane",
+  "holding",
   "windup",
   "preparing-wave",
   "dumping-wave",
   "throwing",
+  "post-throw",
   "wallet-airborne",
   "cooldown",
   "between-waves",
@@ -30,11 +32,13 @@ const VALID_PHASE_TRANSITIONS = new Map([
   ["waiting", new Set(["entering"])],
   ["entering", new Set(["positioning", "moving-to-lane"])],
   ["positioning", new Set(["preparing-wave"])],
+  ["holding", new Set(["windup"])],
   ["moving-to-lane", new Set(["windup"])],
   ["windup", new Set(["throwing"])],
   ["preparing-wave", new Set(["dumping-wave"])],
   ["dumping-wave", new Set(["between-waves"])],
-  ["throwing", new Set(["cooldown", "wallet-airborne", "exiting"])],
+  ["throwing", new Set(["cooldown", "wallet-airborne", "post-throw", "exiting"])],
+  ["post-throw", new Set(["exiting"])],
   ["wallet-airborne", new Set(["wallet-loss-pause"])],
   ["cooldown", new Set(["moving-to-lane"])],
   ["between-waves", new Set(["positioning", "exiting"])],
@@ -295,7 +299,11 @@ function summarizeEvents(events, droppedEventCount) {
       const record = ensureEncounter(encounters, event);
       record.events += 1;
       record.lastElapsedSeconds = event.elapsedSeconds;
-      if (event.type === "encounter.scheduled") record.scheduled = true;
+      if (event.type === "encounter.scheduled") {
+        record.scheduled = true;
+        record.handoffToNext = event.payload.handoffToNext === true;
+        record.immediateSuccessorId = event.payload.immediateSuccessorId ?? null;
+      }
       if (event.type === "encounter.activated") {
         record.activationCount += 1;
         activeCount += 1;
@@ -482,6 +490,8 @@ function ensureEncounter(encounters, event) {
       cleanupFinished: false,
       remainingOwnedObjects: "not observed",
       phases: [],
+      handoffToNext: false,
+      immediateSuccessorId: null,
       events: 0,
       lastElapsedSeconds: 0
     });
@@ -518,11 +528,27 @@ function phasesAreValid(encounters) {
     let previousPhase = null;
     for (const phase of record.phases) {
       if (!VALID_PHASES.has(phase)) return false;
-      if (previousPhase && phase !== previousPhase && !VALID_PHASE_TRANSITIONS.get(previousPhase)?.has(phase)) return false;
+      if (
+        previousPhase &&
+        phase !== previousPhase &&
+        !VALID_PHASE_TRANSITIONS.get(previousPhase)?.has(phase) &&
+        !isConfiguredCoolerHandoffCompletion(record, previousPhase, phase)
+      ) {
+        return false;
+      }
       previousPhase = phase;
     }
     return true;
   });
+}
+
+function isConfiguredCoolerHandoffCompletion(record, previousPhase, phase) {
+  return record.encounterType === "angry-fisherman-cooler" &&
+    record.handoffToNext === true &&
+    typeof record.immediateSuccessorId === "string" &&
+    record.immediateSuccessorId.length > 0 &&
+    previousPhase === "between-waves" &&
+    phase === "complete";
 }
 
 function graceOrderIsValid(events) {
