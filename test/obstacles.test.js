@@ -292,7 +292,8 @@ test("scuba is explicitly registered as a reusable riser presentation", () => {
     type: "riser",
     riserAssetKey: "dodge-scuba-man-riser",
     surfacedAssetKey: "dodge-scuba-man-water",
-    endRouteProgress: 0.18,
+    startRouteProgress: 0.06,
+    endRouteProgress: 0.28,
     collisionActivationProgress: 0.85,
     travelHeightRatio: 1
   });
@@ -859,14 +860,34 @@ test("each dodge obstacle type carries its own collision configuration", () => {
 test("riser progress is deterministic from the fixed horizontal route", () => {
   const first = createDodgeObstacle(CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING, obstacleRowCenter(2), Math.random, SCUBA_MAN_TYPE, { row: 2 });
   const second = createDodgeObstacle(CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING, obstacleRowCenter(2), Math.random, SCUBA_MAN_TYPE, { row: 2 });
-  const riseDistance = (first.routeStartX - first.routeEndX) * SCUBA_MAN_TYPE.presentation.endRouteProgress;
 
-  first.x -= riseDistance * 0.5;
-  second.x -= riseDistance * 0.5;
+  placeAtRouteProgress(first, midpoint(SCUBA_MAN_TYPE.presentation.startRouteProgress, SCUBA_MAN_TYPE.presentation.endRouteProgress));
+  placeAtRouteProgress(second, midpoint(SCUBA_MAN_TYPE.presentation.startRouteProgress, SCUBA_MAN_TYPE.presentation.endRouteProgress));
 
   assertAlmostEqual(obstacleRiseProgress(first), 0.5);
   assertAlmostEqual(obstacleRiseProgress(second), 0.5);
   assert.deepEqual(obstacleRenderPresentation(first), obstacleRenderPresentation(second));
+});
+
+test("riser remains hidden until the configured start route progress", () => {
+  const obstacle = createDodgeObstacle(CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING, obstacleRowCenter(2), Math.random, SCUBA_MAN_TYPE, { row: 2 });
+
+  placeAtRouteProgress(obstacle, SCUBA_MAN_TYPE.presentation.startRouteProgress - 0.001);
+
+  assert.equal(obstacleRiseProgress(obstacle), 0);
+  assert.equal(obstacleCollisionActive(obstacle), false);
+  assert.equal(obstacleRenderPresentation(obstacle).visibleRatio, 0);
+});
+
+test("riser rise progress is zero at the start threshold and one at the end threshold", () => {
+  const obstacle = createDodgeObstacle(CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING, obstacleRowCenter(2), Math.random, SCUBA_MAN_TYPE, { row: 2 });
+
+  placeAtRouteProgress(obstacle, SCUBA_MAN_TYPE.presentation.startRouteProgress);
+  assert.equal(obstacleRiseProgress(obstacle), 0);
+
+  placeAtRouteProgress(obstacle, SCUBA_MAN_TYPE.presentation.endRouteProgress);
+  assert.equal(obstacleRiseProgress(obstacle), 1);
+  assert.equal(obstacleRenderPresentation(obstacle).assetKey, "dodge-scuba-man-water");
 });
 
 test("riser starts fully hidden and switches cleanly to the surfaced asset", () => {
@@ -879,7 +900,7 @@ test("riser starts fully hidden and switches cleanly to the surfaced asset", () 
   assert.equal(start.clipHeight, obstacle.height);
   assert.equal(start.offsetY, obstacle.height);
 
-  obstacle.x = obstacle.routeStartX - (obstacle.routeStartX - obstacle.routeEndX) * SCUBA_MAN_TYPE.presentation.endRouteProgress;
+  placeAtRouteProgress(obstacle, SCUBA_MAN_TYPE.presentation.endRouteProgress);
   const surfaced = obstacleRenderPresentation(obstacle);
 
   assert.equal(obstacleRiseProgress(obstacle), 1);
@@ -890,8 +911,7 @@ test("riser starts fully hidden and switches cleanly to the surfaced asset", () 
 
 test("intermediate riser drawing clips the emerging swimmer without moving the logical row", () => {
   const obstacle = createDodgeObstacle(CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING, obstacleRowCenter(1), Math.random, SCUBA_MAN_TYPE, { row: 1 });
-  const riseDistance = (obstacle.routeStartX - obstacle.routeEndX) * SCUBA_MAN_TYPE.presentation.endRouteProgress;
-  obstacle.x -= riseDistance * 0.5;
+  placeAtRouteProgress(obstacle, midpoint(SCUBA_MAN_TYPE.presentation.startRouteProgress, SCUBA_MAN_TYPE.presentation.endRouteProgress));
   const manager = new ObstacleManager();
   const ctx = new FakeContext();
   manager.activeEvent = fakeEventFromObstacles([obstacle]);
@@ -946,14 +966,13 @@ test("riser does not change logical row, y, horizontal trajectory, or speed", ()
 test("riser hitbox is absent before the collision threshold and normal after it", () => {
   const manager = new ObstacleManager();
   const obstacle = createDodgeObstacle(CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING, obstacleRowCenter(2), Math.random, SCUBA_MAN_TYPE, { row: 2 });
-  const riseDistance = (obstacle.routeStartX - obstacle.routeEndX) * SCUBA_MAN_TYPE.presentation.endRouteProgress;
   manager.activeEvent = fakeEventFromObstacles([obstacle]);
 
-  obstacle.x = obstacle.routeStartX - riseDistance * 0.84;
+  placeAtRiseProgress(obstacle, 0.84);
   assert.equal(obstacleCollisionActive(obstacle), false);
   assert.deepEqual(manager.hitboxes(), []);
 
-  obstacle.x = obstacle.routeStartX - riseDistance * 0.85;
+  placeAtRiseProgress(obstacle, 0.85);
   assert.equal(obstacleCollisionActive(obstacle), true);
   assert.deepEqual(manager.hitboxes(), [
     centeredTestRect(
@@ -1007,7 +1026,7 @@ test("reset and repeated riser spawns do not share mutable rise state", () => {
   const second = createDodgeObstacle(CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING, obstacleRowCenter(3), Math.random, SCUBA_MAN_TYPE, { row: 3 });
   manager.activeEvent = fakeEventFromObstacles([first, second]);
 
-  first.x -= (first.routeStartX - first.routeEndX) * first.presentation.endRouteProgress;
+  placeAtRouteProgress(first, first.presentation.endRouteProgress);
 
   assert.equal(obstacleRiseProgress(first), 1);
   assert.equal(obstacleRiseProgress(second), 0);
@@ -1233,6 +1252,16 @@ function centeredTestRect(x, y, width, height) {
     width,
     height
   };
+}
+
+function placeAtRouteProgress(obstacle, progress) {
+  obstacle.x = obstacle.routeStartX - (obstacle.routeStartX - obstacle.routeEndX) * progress;
+}
+
+function placeAtRiseProgress(obstacle, progress) {
+  const start = obstacle.presentation.startRouteProgress;
+  const end = obstacle.presentation.endRouteProgress;
+  placeAtRouteProgress(obstacle, start + (end - start) * progress);
 }
 
 function maxSimultaneousSwimmers(pattern) {

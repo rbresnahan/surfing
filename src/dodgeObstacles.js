@@ -1,7 +1,8 @@
 export const STANDARD_SWIMMER_VISIBLE_ALPHA_HEIGHT = 48;
 export const ROW_VISUAL_OVERLAP_TOLERANCE = 0.001;
 export const DEFAULT_RISER_COLLISION_ACTIVATION_PROGRESS = 0.85;
-export const DEFAULT_RISER_END_ROUTE_PROGRESS = 0.18;
+export const DEFAULT_RISER_START_ROUTE_PROGRESS = 0.06;
+export const DEFAULT_RISER_END_ROUTE_PROGRESS = 0.28;
 
 export const DODGE_OBSTACLE_TYPES = [
   createDodgeObstacleType({
@@ -49,6 +50,7 @@ export const DODGE_OBSTACLE_TYPES = [
       riserFile: "dodge-scuba-man-riser.png",
       surfacedAssetKey: "dodge-scuba-man-water",
       surfacedFile: "dodge-scuba-man-water.png",
+      startRouteProgress: DEFAULT_RISER_START_ROUTE_PROGRESS,
       endRouteProgress: DEFAULT_RISER_END_ROUTE_PROGRESS,
       collisionActivationProgress: DEFAULT_RISER_COLLISION_ACTIVATION_PROGRESS,
       travelHeightRatio: 1
@@ -161,6 +163,7 @@ function createPresentationConfig(presentation) {
     type: "riser",
     riserAssetKey: presentation.riserAssetKey,
     surfacedAssetKey: presentation.surfacedAssetKey,
+    startRouteProgress: presentation.startRouteProgress ?? DEFAULT_RISER_START_ROUTE_PROGRESS,
     endRouteProgress: presentation.endRouteProgress ?? DEFAULT_RISER_END_ROUTE_PROGRESS,
     collisionActivationProgress: presentation.collisionActivationProgress ?? DEFAULT_RISER_COLLISION_ACTIVATION_PROGRESS,
     travelHeightRatio: presentation.travelHeightRatio ?? 1

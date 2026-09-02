@@ -578,8 +578,13 @@ export function obstacleRouteProgress(obstacle) {
 export function obstacleRiseProgress(obstacle) {
   const presentation = obstacle.presentation;
   if (presentation?.type !== "riser") return 1;
-  const endProgress = Math.max(0.001, presentation.endRouteProgress ?? 1);
-  return Math.max(0, Math.min(1, obstacleRouteProgress(obstacle) / endProgress));
+  const startProgress = presentation.startRouteProgress ?? 0;
+  const endProgress = presentation.endRouteProgress ?? 1;
+  const range = Math.max(0.001, endProgress - startProgress);
+  const progress = (obstacleRouteProgress(obstacle) - startProgress) / range;
+  if (progress <= 1e-9) return 0;
+  if (progress >= 1 - 1e-9) return 1;
+  return Math.max(0, Math.min(1, progress));
 }
 
 export function obstacleCollisionActive(obstacle) {
