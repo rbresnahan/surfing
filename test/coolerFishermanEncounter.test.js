@@ -148,7 +148,7 @@ test("handoff cooler completes at the boat position instead of exiting right", (
   const gameState = createGameState();
 
   encounter.start();
-  runUntil(encounter, gameState, () => encounter.isComplete(), new Set());
+  runUntilWithObstacles(encounter, gameState, () => encounter.isComplete(), new Set());
 
   const handoff = encounter.createHandoffState();
   assert.equal(encounter.phase, COOLER_PHASES.COMPLETE);
@@ -156,6 +156,55 @@ test("handoff cooler completes at the boat position instead of exiting right", (
   assert.equal(handoff.boat.x, encounter.x);
   assert.equal(handoff.boat.y, encounter.y);
   assert.ok(encounter.x - encounter.boatWidth / 2 <= CONFIG.WIDTH);
+});
+
+test("handoff cooler waits in final between-waves until dumped water obstacles resolve", () => {
+  const encounter = new CoolerFishermanEncounter(() => 0, {
+    id: "angry-fisherman-cooler",
+    startTimeMs: 138000,
+    handoffToNext: true,
+    immediateSuccessorId: "angry-fisherman-cooler-toss"
+  });
+  const gameState = createGameState();
+  const handoffX = CONFIG.FISHERMAN_STOP_X;
+  const handoffY = CONFIG.COOLER_ATTACK_POSITIONS.top;
+  gameState.obstacles.addObstacle(createWaterObstacleForTest("angry-fisherman-cooler"));
+  encounter.start(gameState);
+  encounter.x = handoffX;
+  encounter.y = handoffY;
+  encounter.phase = COOLER_PHASES.BETWEEN_WAVES;
+  encounter.completedWaves = 3;
+  encounter.timer = 0;
+
+  encounter.update(0.05, gameState);
+
+  assert.equal(encounter.phase, COOLER_PHASES.BETWEEN_WAVES);
+  assert.equal(encounter.isComplete(), false);
+  assert.equal(encounter.x, handoffX);
+  assert.equal(encounter.y, handoffY);
+
+  while (gameState.obstacles.countEncounterObstaclesBySource("angry-fisherman-cooler") > 0) {
+    gameState.obstacles.update(0.25, gameState.elapsedSeconds, 300, { pauseSpawns: true });
+  }
+  encounter.update(0.05, gameState);
+
+  assert.equal(encounter.phase, COOLER_PHASES.COMPLETE);
+  assert.equal(encounter.isComplete(), true);
+});
+
+test("ordinary cooler still exits after the final between-waves pause", () => {
+  const encounter = new CoolerFishermanEncounter(() => 0);
+  const gameState = createGameState();
+  gameState.obstacles.addObstacle(createWaterObstacleForTest("angry-fisherman-cooler"));
+  encounter.start(gameState);
+  encounter.phase = COOLER_PHASES.BETWEEN_WAVES;
+  encounter.completedWaves = 3;
+  encounter.timer = 0;
+
+  encounter.update(0.05, gameState);
+
+  assert.equal(encounter.phase, COOLER_PHASES.EXITING);
+  assert.equal(encounter.isComplete(), false);
 });
 
 test("dump sprite is used only while releasing items and closed cooler sprite is used otherwise", () => {
@@ -496,6 +545,25 @@ test("completed cooler cleanup removes dumped water obstacles by source", () => 
   assert.deepEqual(gameState.obstacles.encounterObstacles.map((obstacle) => obstacle.source), ["other"]);
 });
 
+test("aborted handoff cooler cleanup still removes remaining dumped water obstacles", () => {
+  const encounter = new CoolerFishermanEncounter(() => 0, {
+    id: "angry-fisherman-cooler",
+    startTimeMs: 138000,
+    handoffToNext: true,
+    immediateSuccessorId: "angry-fisherman-cooler-toss"
+  });
+  const gameState = createGameState();
+  gameState.obstacles.addObstacle(createWaterObstacleForTest("angry-fisherman-cooler"));
+  encounter.start(gameState);
+  encounter.phase = COOLER_PHASES.BETWEEN_WAVES;
+  encounter.completedWaves = 3;
+
+  encounter.cleanup(gameState);
+
+  assert.equal(gameState.obstacles.countEncounterObstaclesBySource("angry-fisherman-cooler"), 0);
+  assert.equal(encounter.phase, COOLER_PHASES.WAITING);
+});
+
 test("cooler dumped items use curated shared-row pattern definitions", () => {
   const gate = createCoolerWavePlan({ side: "top", waveIndex: 0, random: () => 0 });
   const finale = createCoolerWavePlan({ side: "bottom", waveIndex: 2, previousPattern: gate.pattern, random: () => 0 });
@@ -559,6 +627,14 @@ function runUntil(encounter, gameState, done, phasesSeen) {
   for (let i = 0; i < 600 && !done(); i += 1) {
     phasesSeen.add(encounter.phase);
     encounter.update(0.05, gameState);
+  }
+}
+
+function runUntilWithObstacles(encounter, gameState, done, phasesSeen) {
+  for (let i = 0; i < 900 && !done(); i += 1) {
+    phasesSeen.add(encounter.phase);
+    encounter.update(0.05, gameState);
+    gameState.obstacles.update(0.05, gameState.elapsedSeconds, 300, { pauseSpawns: true });
   }
 }
 

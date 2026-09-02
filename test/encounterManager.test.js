@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { CONFIG, encounterConfig } from "../src/config.js";
-import { DiagnosticsSink } from "../src/diagnostics.js";
+import { DiagnosticsSink, createDiagnosticsReport } from "../src/diagnostics.js";
 import { EncounterManager } from "../src/encounterManager.js";
+import { ObstacleManager } from "../src/obstacles.js";
 import { createEncounterById, encounterCatalog, registerConfiguredEncounters } from "../src/encounterRegistry.js";
 import { RunController } from "../src/runController.js";
 
@@ -437,6 +438,94 @@ test("manager immediately activates a configured handoff successor without grace
   assert.equal(manager.shouldPauseNormalSpawns(), false);
 });
 
+test("manager waits for final cooler dump obstacles to resolve before cooler toss handoff", () => {
+  const diagnostics = enabledDiagnostics();
+  diagnostics.startRun();
+  const obstacles = new ObstacleManager({ diagnostics });
+  const manager = registerConfiguredEncounters(new EncounterManager({ diagnostics }), undefined, [
+    {
+      id: "angry-fisherman-cooler",
+      startTimeMs: 0,
+      difficultyStageOnComplete: 2,
+      handoffToNext: true,
+      immediateSuccessorId: "angry-fisherman-cooler-toss"
+    },
+    {
+      id: "angry-fisherman-cooler-toss",
+      difficultyStageOnComplete: 2
+    }
+  ]);
+  let elapsedMs = 0;
+  let finalDumpCount = 0;
+
+  for (let frame = 0; frame < 900; frame += 1) {
+    const state = gameStateAt(elapsedMs);
+    state.obstacles = obstacles;
+    manager.update(0.05, state);
+    obstacles.update(0.05, elapsedMs / 1000, 300, {
+      pauseSpawns: manager.shouldPauseNormalSpawns(),
+      pauseOwner: diagnostics.occurrenceId(manager.activeEncounter)
+    });
+    elapsedMs += 50;
+    if (
+      manager.activeEncounter?.id === "angry-fisherman-cooler" &&
+      manager.activeEncounter.completedWaves === 3 &&
+      manager.activeEncounter.phase === "between-waves" &&
+      obstacles.countEncounterObstaclesBySource("angry-fisherman-cooler") > 0
+    ) {
+      finalDumpCount = obstacles.countEncounterObstaclesBySource("angry-fisherman-cooler");
+      break;
+    }
+  }
+
+  assert.equal(manager.activeEncounter?.id, "angry-fisherman-cooler");
+  assert.equal(manager.activeEncounter?.phase, "between-waves");
+  assert.equal(manager.activeEncounter?.isComplete(), false);
+  assert.equal(finalDumpCount > 0, true);
+  assert.equal(obstacles.activeEvents.length, 0);
+
+  const handoffX = manager.activeEncounter.x;
+  const handoffY = manager.activeEncounter.y;
+  while (obstacles.countEncounterObstaclesBySource("angry-fisherman-cooler") > 0) {
+    const state = gameStateAt(elapsedMs);
+    state.obstacles = obstacles;
+    manager.update(0.05, state);
+    assert.equal(manager.activeEncounter?.id, "angry-fisherman-cooler");
+    obstacles.update(0.05, elapsedMs / 1000, 300, {
+      pauseSpawns: manager.shouldPauseNormalSpawns(),
+      pauseOwner: diagnostics.occurrenceId(manager.activeEncounter)
+    });
+    elapsedMs += 50;
+  }
+
+  const state = gameStateAt(elapsedMs);
+  state.obstacles = obstacles;
+  manager.update(0.05, state);
+
+  assert.equal(manager.activeEncounter?.id, "angry-fisherman-cooler-toss");
+  assert.equal(manager.activeEncounter?.phase, "holding");
+  assert.equal(manager.activeEncounter?.x, handoffX);
+  assert.equal(manager.activeEncounter?.y, handoffY);
+  assert.equal(obstacles.countEncounterObstaclesBySource("angry-fisherman-cooler"), 0);
+  assert.equal(obstacles.activeEvents.length, 0);
+  assert.equal(diagnostics.events.filter((event) => event.type === "normal_spawn.violation").length, 0);
+  assert.equal(createDiagnosticsReport([...diagnostics.events, gameOverEvent(diagnostics)]).summary.maxActiveEncounters, 1);
+
+  const outgoingRemovals = diagnostics.events.filter((event) =>
+    event.type === "object.removed" &&
+    event.payload.source === "angry-fisherman-cooler"
+  );
+  assert.equal(outgoingRemovals.length >= finalDumpCount, true);
+  assert.equal(outgoingRemovals.every((event) => event.payload.reason === "dodged"), true);
+  assert.equal(outgoingRemovals.some((event) => event.payload.reason === "cleanup"), false);
+
+  const dodgeCounts = new Map();
+  for (const event of diagnostics.events.filter((event) => event.type === "object.dodge_awarded")) {
+    dodgeCounts.set(event.objectId, (dodgeCounts.get(event.objectId) ?? 0) + 1);
+  }
+  assert.equal([...dodgeCounts.values()].every((count) => count <= 1), true);
+});
+
 test("same inputs produce the same encounter sequence", () => {
   function runSequence() {
     const manager = new EncounterManager();
@@ -686,4 +775,21 @@ function fakeEncounter(options = {}) {
 
 function gameStateAt(elapsedMs) {
   return { elapsedMs, elapsedSeconds: elapsedMs / 1000 };
+}
+
+function gameOverEvent(diagnostics) {
+  return {
+    schemaVersion: "surf-run-diagnostics-v1",
+    gameVersion: "v0.8.5",
+    runId: diagnostics.runId,
+    sequence: diagnostics.sequence + 1,
+    elapsedSeconds: 1,
+    type: "game.over",
+    occurrenceId: null,
+    encounterType: null,
+    objectId: null,
+    objectType: null,
+    owner: null,
+    payload: { finalScore: 500, headsDodged: 1, survivalTime: 1 }
+  };
 }

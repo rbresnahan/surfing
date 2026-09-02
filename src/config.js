@@ -1,4 +1,4 @@
-export const VERSION = "v0.8.4";
+export const VERSION = "v0.8.5";
 
 const SURFER_DISPLAY_HEIGHT = 140;
 const SURFER_DISPLAY_WIDTH = 1199 * (SURFER_DISPLAY_HEIGHT / 1312);
@@ -135,7 +135,7 @@ export const CONFIG = {
   WIPEOUT_SECONDS: 1,
   SCORE_TIME_MULTIPLIER: 100,
   SCORE_DODGE_VALUE: 500,
-  STORAGE_KEY: "surf-game-v0.8.4-records"
+  STORAGE_KEY: "surf-game-v0.8.5-records"
 };
 
 CONFIG.ENCOUNTER_SEQUENCE = [

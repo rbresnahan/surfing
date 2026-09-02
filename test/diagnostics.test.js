@@ -171,6 +171,29 @@ test("scheduled diagnostics retain encounter handoff metadata per occurrence", (
   assert.deepEqual(scheduled.map((event) => event.payload.immediateSuccessorId), [null, "angry-fisherman-cooler-toss"]);
 });
 
+test("activation and completion diagnostics include encounter handoff metadata", () => {
+  const diagnostics = enabledDiagnostics();
+  diagnostics.startRun();
+  const manager = new EncounterManager({ diagnostics });
+  manager.register(fakeEncounter({
+    id: "angry-fisherman-cooler",
+    canStart: () => true,
+    completeAfterUpdate: true,
+    handoffToNext: true,
+    immediateSuccessorId: "angry-fisherman-cooler-toss"
+  }));
+
+  manager.update(0.016, gameStateAt(1000));
+  manager.update(0.016, gameStateAt(1016));
+
+  const activated = diagnostics.events.find((event) => event.type === "encounter.activated");
+  const completed = diagnostics.events.find((event) => event.type === "encounter.completed");
+  assert.equal(activated.payload.handoffToNext, true);
+  assert.equal(activated.payload.immediateSuccessorId, "angry-fisherman-cooler-toss");
+  assert.equal(completed.payload.handoffToNext, true);
+  assert.equal(completed.payload.immediateSuccessorId, "angry-fisherman-cooler-toss");
+});
+
 test("phase transitions are recorded", () => {
   const diagnostics = enabledDiagnostics();
   diagnostics.startRun();
@@ -320,12 +343,36 @@ test("report accepts configured cooler handoff completion without an exit phase"
   assert.equal(report.encounterRecords[0].immediateSuccessorId, "angry-fisherman-cooler-toss");
 });
 
+test("report accepts late-captured cooler handoff completion metadata without scheduled events", () => {
+  const report = createDiagnosticsReport(coolerLifecycleEvents({
+    includeScheduled: false,
+    handoffToNext: true,
+    immediateSuccessorId: "angry-fisherman-cooler-toss",
+    phases: ["between-waves", "complete"]
+  }));
+
+  assert.equal(phaseLifecycleStatus(report), "pass");
+  assert.equal(report.summary.scheduledCount, 0);
+  assert.equal(report.encounterRecords[0].handoffToNext, true);
+  assert.equal(report.encounterRecords[0].immediateSuccessorId, "angry-fisherman-cooler-toss");
+});
+
 test("report rejects ordinary cooler completion that skips the exit phase", () => {
   const report = createDiagnosticsReport(coolerLifecycleEvents({
     phases: ["between-waves", "complete"]
   }));
 
   assert.equal(phaseLifecycleStatus(report), "fail");
+});
+
+test("report rejects late-captured ordinary cooler completion that skips the exit phase", () => {
+  const report = createDiagnosticsReport(coolerLifecycleEvents({
+    includeScheduled: false,
+    phases: ["between-waves", "complete"]
+  }));
+
+  assert.equal(phaseLifecycleStatus(report), "fail");
+  assert.equal(report.summary.scheduledCount, 0);
 });
 
 test("report accepts the cooler toss lifecycle phases", () => {
@@ -634,6 +681,7 @@ function coolerLifecycleEvents({
   encounterType = "angry-fisherman-cooler",
   handoffToNext = false,
   immediateSuccessorId = null,
+  includeScheduled = true,
   phases
 }) {
   return [
@@ -645,19 +693,26 @@ function coolerLifecycleEvents({
       encounterSequence: [{ id: encounterType }],
       deterministicSeed: null
     }),
-    diagnosticEvent(2, "encounter.scheduled", {
+    ...(includeScheduled ? [diagnosticEvent(2, "encounter.scheduled", {
       occurrenceId: "enc-1",
       encounterType,
       owner: "enc-1",
       handoffToNext,
       immediateSuccessorId
-    }),
+    })] : []),
     ...phases.map((phase, index) => diagnosticEvent(3 + index, "encounter.phase_transition", {
       occurrenceId: "enc-1",
       encounterType,
       owner: "enc-1",
       to: phase
     })),
+    diagnosticEvent(18, "encounter.completed", {
+      occurrenceId: "enc-1",
+      encounterType,
+      owner: "enc-1",
+      handoffToNext,
+      immediateSuccessorId
+    }),
     diagnosticEvent(20, "game.over", { finalScore: 500, headsDodged: 0, survivalTime: 5 })
   ];
 }

@@ -301,10 +301,10 @@ function summarizeEvents(events, droppedEventCount) {
       record.lastElapsedSeconds = event.elapsedSeconds;
       if (event.type === "encounter.scheduled") {
         record.scheduled = true;
-        record.handoffToNext = event.payload.handoffToNext === true;
-        record.immediateSuccessorId = event.payload.immediateSuccessorId ?? null;
+        applyHandoffMetadata(record, event);
       }
       if (event.type === "encounter.activated") {
+        applyHandoffMetadata(record, event);
         record.activationCount += 1;
         activeCount += 1;
         maxActiveEncounters = Math.max(maxActiveEncounters, activeCount);
@@ -313,6 +313,7 @@ function summarizeEvents(events, droppedEventCount) {
         record.phases.push(event.payload.to);
       }
       if (event.type === "encounter.completed") {
+        applyHandoffMetadata(record, event);
         record.completionCount += 1;
         activeCount = Math.max(0, activeCount - 1);
       }
@@ -497,6 +498,15 @@ function ensureEncounter(encounters, event) {
     });
   }
   return encounters.get(event.occurrenceId);
+}
+
+function applyHandoffMetadata(record, event) {
+  if (Object.hasOwn(event.payload, "handoffToNext")) {
+    record.handoffToNext = event.payload.handoffToNext === true;
+  }
+  if (Object.hasOwn(event.payload, "immediateSuccessorId")) {
+    record.immediateSuccessorId = event.payload.immediateSuccessorId ?? null;
+  }
 }
 
 function ensureObject(objects, event) {

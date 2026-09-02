@@ -130,6 +130,7 @@ export class CoolerFishermanEncounter {
       if (this.timer > 0) return;
 
       if (this.completedWaves >= WAVE_COUNT) {
+        if (this.shouldDrainFinalHandoffObstacles(gameState)) return;
         this.phase = this.handoffToNext ? COOLER_PHASES.COMPLETE : COOLER_PHASES.EXITING;
       } else {
         this.phase = COOLER_PHASES.POSITIONING;
@@ -190,6 +191,11 @@ export class CoolerFishermanEncounter {
 
   isDumping() {
     return this.phase === COOLER_PHASES.DUMPING_WAVE;
+  }
+
+  shouldDrainFinalHandoffObstacles(gameState) {
+    if (!this.handoffToNext || !this.immediateSuccessorId) return false;
+    return (gameState?.obstacles?.countEncounterObstaclesBySource?.(this.id) ?? 0) > 0;
   }
 
   beginDumpingWave() {

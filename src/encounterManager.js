@@ -122,7 +122,9 @@ export class EncounterManager {
       encounterType: encounter.id,
       owner: occurrenceId,
       phase: encounterPhase(encounter),
-      source
+      source,
+      handoffToNext: encounter.handoffToNext === true,
+      immediateSuccessorId: encounter.immediateSuccessorId ?? null
     });
     this.recordPhaseIfChanged(encounter, gameState.elapsedSeconds ?? 0, true);
   }
@@ -172,7 +174,9 @@ export class EncounterManager {
       elapsedSeconds: gameState.elapsedSeconds ?? 0,
       occurrenceId,
       encounterType: encounter.id,
-      owner: occurrenceId
+      owner: occurrenceId,
+      handoffToNext: encounter.handoffToNext === true,
+      immediateSuccessorId: encounter.immediateSuccessorId ?? null
     });
     this.recordCleanupStarted(encounter, gameState.elapsedSeconds ?? 0);
     encounter.cleanup(gameState);
