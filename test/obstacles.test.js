@@ -292,8 +292,8 @@ test("scuba is explicitly registered as a reusable riser presentation", () => {
     type: "riser",
     riserAssetKey: "dodge-scuba-man-riser",
     surfacedAssetKey: "dodge-scuba-man-water",
-    startRouteProgress: 0.06,
-    endRouteProgress: 0.28,
+    startRouteProgress: 0.15,
+    endRouteProgress: 0.37,
     collisionActivationProgress: 0.85,
     travelHeightRatio: 1
   });
