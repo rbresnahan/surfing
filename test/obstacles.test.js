@@ -64,8 +64,8 @@ test("first authored foundation event always has valid Y positions", () => {
     assert.equal(event.patternId, "opening-single-low");
     assert.deepEqual(event.heads.map((head) => [head.row, head.obstacleTypeId, head.timeOffset]), [
       [4, "head", 0],
-      [1, "head", 1],
-      [2, "head", 2]
+      [3, "head", 1.5],
+      [5, "head", 3]
     ]);
     event.heads.forEach(assertHeadInsideBounds);
   }
@@ -447,13 +447,11 @@ test("ordinary obstacle spawning uses authored deterministic obstacle types", ()
 
   assert.deepEqual(event.heads.map((head) => [head.row, head.obstacleTypeId, head.assetKey, head.timeOffset]), [
     [0, "head", "dodge-head", 0],
-    [5, "head", "dodge-head", 0],
-    [0, "head", "dodge-head", 1],
-    [4, "head", "dodge-head", 1],
+    [5, "head", "dodge-head", 0.25],
+    [5, "head", "dodge-head", 1.25],
     [1, "scuba-man", "dodge-scuba-man-water", 1.75],
-    [5, "head", "dodge-head", 2],
-    [0, "head", "dodge-head", 2.75],
-    [4, "head", "dodge-head", 2.75]
+    [0, "head", "dodge-head", 2.5],
+    [5, "head", "dodge-head", 3]
   ]);
 });
 
@@ -550,98 +548,100 @@ test("tier 1-3 deterministic schedule order remains authored", () => {
 test("tier 1 foundation catalog matches the revised authored grid", () => {
   const expected = {
     "opening-single-low": {
-      safeRoute: "three-step lower-to-upper stagger",
+      safeRoute: "lower-band stagger",
       obstacles: [
         [4, 0, "head"],
-        [1, 1, "head"],
-        [2, 2, "head"]
+        [3, 1.5, "head"],
+        [5, 3, "head"]
       ]
     },
     "opening-single-high": {
-      safeRoute: "five-step lower-to-upper sweep",
+      safeRoute: "center-to-high return",
       obstacles: [
-        [3, 0, "head"],
-        [4, 1, "head"],
-        [1, 1.75, "head"],
-        [5, 2.5, "head"],
-        [0, 2.75, "head"]
+        [2, 0.5, "head"],
+        [0, 1.75, "head"],
+        [2, 3, "head"]
       ]
     },
     "opening-pair-wide": {
-      safeRoute: "alternating split-edge pressure",
+      safeRoute: "alternating edge pressure with upper riser",
       obstacles: [
         [0, 0, "head"],
-        [5, 0, "head"],
-        [0, 1, "head"],
-        [4, 1, "head"],
+        [5, 0.25, "head"],
+        [5, 1.25, "head"],
         [1, 1.75, "scuba-man"],
-        [5, 2, "head"],
-        [0, 2.75, "head"],
-        [4, 2.75, "head"]
+        [0, 2.5, "head"],
+        [5, 3, "head"]
       ]
     },
     "opening-gate-top": {
-      safeRoute: "lower diagonal with upper riser and return",
+      safeRoute: "split top-and-lower pressure with riser",
       obstacles: [
         [0, 0, "head"],
-        [3, 0.25, "head"],
-        [4, 0.5, "head"],
+        [4, 0.25, "head"],
         [5, 0.75, "head"],
-        [5, 1.25, "head"],
-        [1, 1.5, "head"],
-        [0, 2, "scuba-man"],
+        [0, 1, "head"],
+        [4, 1.75, "scuba-man"],
         [5, 2.25, "head"],
-        [4, 2.5, "head"],
-        [3, 2.75, "head"]
+        [4, 2.75, "head"]
       ]
     },
     "opening-gate-bottom": {
-      safeRoute: "upper diagonal with lower riser and return",
+      safeRoute: "center pressure with split edge escape",
       obstacles: [
         [0, 0, "head"],
-        [1, 0.25, "head"],
         [2, 0.5, "head"],
-        [3, 0.75, "head"],
         [2, 1.25, "head"],
-        [1, 1.5, "head"],
-        [5, 1.75, "scuba-man"],
         [0, 2, "head"],
-        [1, 2.25, "head"],
+        [5, 2, "scuba-man"],
         [2, 2.5, "head"],
-        [3, 2.75, "head"]
+        [2, 3, "head"]
       ]
     },
     "opening-single-center": {
-      safeRoute: "center-channel pressure reset",
+      safeRoute: "alternating center-channel reset",
       obstacles: [
         [2, 0, "head"],
-        [3, 1, "head"],
-        [3, 1.75, "scuba-man"],
+        [3, 1, "scuba-man"],
         [2, 2, "head"],
-        [2, 2.75, "head"]
+        [3, 3, "head"]
       ]
     }
   };
 
   assert.deepEqual(swimmerTier(1).schedule, Object.keys(expected));
+  assert.equal(Object.values(expected).reduce((sum, definition) => sum + definition.obstacles.length, 0), 30);
   for (const [patternId, definition] of Object.entries(expected)) {
     const pattern = PATTERN_BY_ID[patternId];
     assert.equal(pattern.tier, 1);
     assert.equal(pattern.safeRoute, definition.safeRoute);
+    assert.equal(pattern.obstacles.length, definition.obstacles.length, patternId);
     assert.deepEqual(
       pattern.obstacles.map((obstacle) => [obstacle.row, obstacle.timeOffset, obstacle.typeId]),
       definition.obstacles,
       patternId
     );
+    assert.deepEqual([...new Set(pattern.obstacles.map((obstacle) => obstacle.typeId))].sort(), [
+      ...new Set(definition.obstacles.map(([, , typeId]) => typeId))
+    ].sort(), patternId);
   }
+  assert.deepEqual(
+    [...new Set(Object.values(expected).flatMap((definition) => definition.obstacles.map(([, , typeId]) => typeId)))].sort(),
+    ["head", "scuba-man"]
+  );
+  assert.equal(
+    swimmerTier(1).schedule.flatMap((patternId) => PATTERN_BY_ID[patternId].obstacles).length,
+    30
+  );
 });
 
 test("every scheduled tier 1 pattern creates and validates at runtime", () => {
   for (const patternId of SWIMMER_TIERS[1].schedule) {
+    const pattern = PATTERN_BY_ID[patternId];
     const event = createObstacleEvent({
       surferY: 300,
       elapsed: 0,
-      pattern: PATTERN_BY_ID[patternId],
+      pattern,
       difficultyTier: 1
     });
 
@@ -649,7 +649,51 @@ test("every scheduled tier 1 pattern creates and validates at runtime", () => {
     assert.equal(event.patternId, patternId);
     assert.equal(isEventFair(event, 300, event.speed), true, patternId);
     assert.equal(isEventPlacementClear(event), true, patternId);
+    assert.equal(validatePatternSequence([{ pattern }], {
+      speed: swimmerTier(1).speed,
+      surferY: 300
+    }).valid, true, patternId);
+    assert.ok(maxSimultaneousSwimmers(pattern) <= 2, patternId);
   }
+});
+
+test("complete tier 1 schedule validates in authored order at runtime cadence", () => {
+  const tier = swimmerTier(1);
+  let startTime = 0;
+  const sequence = tier.schedule.map((patternId) => {
+    const pattern = PATTERN_BY_ID[patternId];
+    const scheduled = { pattern, startTime };
+    startTime += patternHorizontalDuration(pattern, tier.speed) + tier.spawnDelaySeconds;
+    return scheduled;
+  });
+
+  assert.equal(validatePatternSequence(sequence, {
+    speed: tier.speed,
+    surferY: 300
+  }).valid, true);
+});
+
+test("tier 1 scheduler reset reproduces exact authored obstacle sequences", () => {
+  const sample = () => {
+    const scheduler = new DeterministicObstacleScheduler({ tier: swimmerTier(1) });
+    const events = [];
+    for (let i = 0; i < swimmerTier(1).schedule.length; i += 1) {
+      const event = scheduler.nextEvent({
+        difficultyTier: 1,
+        tierTuning: swimmerTier(1),
+        surferY: 300,
+        activeHeads: []
+      });
+      events.push({
+        patternId: event.patternId,
+        heads: event.heads.map((head) => [head.row, head.timeOffset, head.obstacleTypeId])
+      });
+    }
+    return events;
+  };
+
+  assert.deepEqual(sample().map((event) => event.patternId), swimmerTier(1).schedule);
+  assert.deepEqual(sample(), sample());
 });
 
 test("deterministic scheduler repeats the same stage sequence after reset", () => {
@@ -838,8 +882,8 @@ test("no gameplay RNG changes ordinary obstacle schedule", () => {
   assert.equal(event.patternId, "opening-single-low");
   assert.deepEqual(event.heads.map((head) => [head.row, head.obstacleTypeId, head.timeOffset]), [
     [4, "head", 0],
-    [1, "head", 1],
-    [2, "head", 2]
+    [3, "head", 1.5],
+    [5, "head", 3]
   ]);
 });
 

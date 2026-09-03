@@ -5,58 +5,46 @@ import { CONFIG } from "./config.js";
 export const OBSTACLE_PATTERNS = [
   pattern("opening-single-low", 1, [
     hit(4, 0, "head"),
-    hit(1, 1, "head"),
-    hit(2, 2, "head")
-  ], "three-step lower-to-upper stagger"),
+    hit(3, 1.5, "head"),
+    hit(5, 3, "head")
+  ], "lower-band stagger"),
   pattern("opening-single-high", 1, [
-    hit(3, 0, "head"),
-    hit(4, 1, "head"),
-    hit(1, 1.75, "head"),
-    hit(5, 2.5, "head"),
-    hit(0, 2.75, "head")
-  ], "five-step lower-to-upper sweep"),
+    hit(2, 0.5, "head"),
+    hit(0, 1.75, "head"),
+    hit(2, 3, "head")
+  ], "center-to-high return"),
   pattern("opening-single-center", 1, [
     hit(2, 0, "head"),
-    hit(3, 1, "head"),
-    hit(3, 1.75, "scuba-man"),
+    hit(3, 1, "scuba-man"),
     hit(2, 2, "head"),
-    hit(2, 2.75, "head")
-  ], "center-channel pressure reset"),
+    hit(3, 3, "head")
+  ], "alternating center-channel reset"),
   pattern("opening-pair-wide", 1, [
     hit(0, 0, "head"),
-    hit(5, 0, "head"),
-    hit(0, 1, "head"),
-    hit(4, 1, "head"),
+    hit(5, 0.25, "head"),
+    hit(5, 1.25, "head"),
     hit(1, 1.75, "scuba-man"),
-    hit(5, 2, "head"),
-    hit(0, 2.75, "head"),
-    hit(4, 2.75, "head")
-  ], "alternating split-edge pressure"),
+    hit(0, 2.5, "head"),
+    hit(5, 3, "head")
+  ], "alternating edge pressure with upper riser"),
   pattern("opening-gate-top", 1, [
     hit(0, 0, "head"),
-    hit(3, 0.25, "head"),
-    hit(4, 0.5, "head"),
+    hit(4, 0.25, "head"),
     hit(5, 0.75, "head"),
-    hit(5, 1.25, "head"),
-    hit(1, 1.5, "head"),
-    hit(0, 2, "scuba-man"),
+    hit(0, 1, "head"),
+    hit(4, 1.75, "scuba-man"),
     hit(5, 2.25, "head"),
-    hit(4, 2.5, "head"),
-    hit(3, 2.75, "head")
-  ], "lower diagonal with upper riser and return"),
+    hit(4, 2.75, "head")
+  ], "split top-and-lower pressure with riser"),
   pattern("opening-gate-bottom", 1, [
     hit(0, 0, "head"),
-    hit(1, 0.25, "head"),
     hit(2, 0.5, "head"),
-    hit(3, 0.75, "head"),
     hit(2, 1.25, "head"),
-    hit(1, 1.5, "head"),
-    hit(5, 1.75, "scuba-man"),
     hit(0, 2, "head"),
-    hit(1, 2.25, "head"),
+    hit(5, 2, "scuba-man"),
     hit(2, 2.5, "head"),
-    hit(3, 2.75, "head")
-  ], "upper diagonal with lower riser and return"),
+    hit(2, 3, "head")
+  ], "center pressure with split edge escape"),
   gate("center-gate", 2, [2, 3], "central two-row opening", ["head", "noodle-man", "tube-woman", "scuba-man"]),
 
   pattern("stage1-alternating-openings", 2, [
