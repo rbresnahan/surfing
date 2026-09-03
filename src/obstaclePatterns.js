@@ -4,43 +4,44 @@ import { CONFIG } from "./config.js";
 
 export const OBSTACLE_PATTERNS = [
   pattern("opening-single-low", 1, [
-    hit(4, 0, "head"),
+    hit(5, 0, "head"),
     hit(3, 1.5, "head"),
-    hit(5, 3, "head")
-  ], "lower-band stagger"),
-  pattern("opening-single-high", 1, [
-    hit(2, 0.5, "head"),
-    hit(0, 1.75, "head"),
-    hit(2, 3, "head")
-  ], "center-to-high return"),
-  pattern("opening-single-center", 1, [
-    hit(2, 0, "head"),
-    hit(3, 1, "scuba-man"),
-    hit(2, 2, "head"),
     hit(3, 3, "head")
-  ], "alternating center-channel reset"),
+  ], "lower entry into middle-lane pressure"),
+  pattern("opening-single-high", 1, [
+    hit(0, 0, "head"),
+    hit(1, 1.75, "head"),
+    hit(2, 3, "head")
+  ], "descending upper-lane progression"),
   pattern("opening-pair-wide", 1, [
     hit(0, 0, "head"),
-    hit(5, 0.25, "head"),
-    hit(5, 1.25, "head"),
-    hit(1, 1.75, "scuba-man"),
-    hit(0, 2.5, "head"),
+    hit(5, 0.75, "head"),
+    hit(0, 1.25, "scuba-man"),
+    hit(5, 2, "head"),
+    hit(0, 3, "head"),
     hit(5, 3, "head")
   ], "alternating edge pressure with upper riser"),
   pattern("opening-gate-top", 1, [
     hit(0, 0, "head"),
-    hit(5, 0.75, "head"),
-    hit(0, 1, "head"),
-    hit(4, 1.75, "scuba-man"),
-    hit(5, 2.75, "head")
-  ], "alternating top and lower-band pressure"),
+    hit(5, 0.5, "head"),
+    hit(4, 1.25, "head"),
+    hit(0, 2, "scuba-man"),
+    hit(5, 2.25, "head"),
+    hit(5, 3, "head")
+  ], "lower-lane pressure with upper riser"),
   pattern("opening-gate-bottom", 1, [
     hit(1, 0, "head"),
     hit(0, 1.25, "head"),
-    hit(5, 1.75, "head"),
-    hit(0, 2, "scuba-man"),
+    hit(5, 1.5, "head"),
+    hit(0, 2, "head"),
     hit(1, 3, "head")
-  ], "split edge transition with upper riser"),
+  ], "upper-lane pressure with lower transition"),
+  pattern("opening-single-center", 1, [
+    hit(2, 0, "head"),
+    hit(3, 1, "head"),
+    hit(2, 2, "head"),
+    hit(3, 3, "scuba-man")
+  ], "alternating center weave with riser finish"),
   gate("center-gate", 2, [2, 3], "central two-row opening", ["head", "noodle-man", "tube-woman", "scuba-man"]),
 
   pattern("stage1-alternating-openings", 2, [

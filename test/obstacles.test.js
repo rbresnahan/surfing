@@ -63,9 +63,9 @@ test("first authored foundation event always has valid Y positions", () => {
     assert.equal(event.type, "pattern");
     assert.equal(event.patternId, "opening-single-low");
     assert.deepEqual(event.heads.map((head) => [head.row, head.obstacleTypeId, head.timeOffset]), [
-      [4, "head", 0],
+      [5, "head", 0],
       [3, "head", 1.5],
-      [5, "head", 3]
+      [3, "head", 3]
     ]);
     event.heads.forEach(assertHeadInsideBounds);
   }
@@ -144,7 +144,7 @@ test("a head cannot spawn with rendered bounds overlapping an active head", () =
   const event = createObstacleEvent({
     surferY: 300,
     elapsed: 0,
-    activeHeads: [createTestHead(CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING, obstacleRowCenter(4))],
+    activeHeads: [createTestHead(CONFIG.WIDTH + CONFIG.SPAWN_X_PADDING, obstacleRowCenter(5))],
     random: () => 0.5,
     pattern: PATTERN_BY_ID["opening-single-low"]
   });
@@ -447,10 +447,10 @@ test("ordinary obstacle spawning uses authored deterministic obstacle types", ()
 
   assert.deepEqual(event.heads.map((head) => [head.row, head.obstacleTypeId, head.assetKey, head.timeOffset]), [
     [0, "head", "dodge-head", 0],
-    [5, "head", "dodge-head", 0.25],
-    [5, "head", "dodge-head", 1.25],
-    [1, "scuba-man", "dodge-scuba-man-water", 1.75],
-    [0, "head", "dodge-head", 2.5],
+    [5, "head", "dodge-head", 0.75],
+    [0, "scuba-man", "dodge-scuba-man-water", 1.25],
+    [5, "head", "dodge-head", 2],
+    [0, "head", "dodge-head", 3],
     [5, "head", "dodge-head", 3]
   ]);
 });
@@ -548,18 +548,18 @@ test("tier 1-3 deterministic schedule order remains authored", () => {
 test("tier 1 foundation catalog matches the revised authored grid", () => {
   const expected = {
     "opening-single-low": {
-      safeRoute: "lower-band stagger",
+      safeRoute: "lower entry into middle-lane pressure",
       obstacles: [
-        [4, 0, "head"],
+        [5, 0, "head"],
         [3, 1.5, "head"],
-        [5, 3, "head"]
+        [3, 3, "head"]
       ]
     },
     "opening-single-high": {
-      safeRoute: "center-to-high return",
+      safeRoute: "descending upper-lane progression",
       obstacles: [
-        [2, 0.5, "head"],
-        [0, 1.75, "head"],
+        [0, 0, "head"],
+        [1, 1.75, "head"],
         [2, 3, "head"]
       ]
     },
@@ -567,46 +567,47 @@ test("tier 1 foundation catalog matches the revised authored grid", () => {
       safeRoute: "alternating edge pressure with upper riser",
       obstacles: [
         [0, 0, "head"],
-        [5, 0.25, "head"],
-        [5, 1.25, "head"],
-        [1, 1.75, "scuba-man"],
-        [0, 2.5, "head"],
+        [5, 0.75, "head"],
+        [0, 1.25, "scuba-man"],
+        [5, 2, "head"],
+        [0, 3, "head"],
         [5, 3, "head"]
       ]
     },
     "opening-gate-top": {
-      safeRoute: "alternating top and lower-band pressure",
+      safeRoute: "lower-lane pressure with upper riser",
       obstacles: [
         [0, 0, "head"],
-        [5, 0.75, "head"],
-        [0, 1, "head"],
-        [4, 1.75, "scuba-man"],
-        [5, 2.75, "head"]
+        [5, 0.5, "head"],
+        [4, 1.25, "head"],
+        [0, 2, "scuba-man"],
+        [5, 2.25, "head"],
+        [5, 3, "head"]
       ]
     },
     "opening-gate-bottom": {
-      safeRoute: "split edge transition with upper riser",
+      safeRoute: "upper-lane pressure with lower transition",
       obstacles: [
         [1, 0, "head"],
         [0, 1.25, "head"],
-        [5, 1.75, "head"],
-        [0, 2, "scuba-man"],
+        [5, 1.5, "head"],
+        [0, 2, "head"],
         [1, 3, "head"]
       ]
     },
     "opening-single-center": {
-      safeRoute: "alternating center-channel reset",
+      safeRoute: "alternating center weave with riser finish",
       obstacles: [
         [2, 0, "head"],
-        [3, 1, "scuba-man"],
+        [3, 1, "head"],
         [2, 2, "head"],
-        [3, 3, "head"]
+        [3, 3, "scuba-man"]
       ]
     }
   };
 
   assert.deepEqual(swimmerTier(1).schedule, Object.keys(expected));
-  assert.equal(Object.values(expected).reduce((sum, definition) => sum + definition.obstacles.length, 0), 26);
+  assert.equal(Object.values(expected).reduce((sum, definition) => sum + definition.obstacles.length, 0), 27);
   for (const [patternId, definition] of Object.entries(expected)) {
     const pattern = PATTERN_BY_ID[patternId];
     assert.equal(pattern.tier, 1);
@@ -627,8 +628,14 @@ test("tier 1 foundation catalog matches the revised authored grid", () => {
   );
   assert.equal(
     swimmerTier(1).schedule.flatMap((patternId) => PATTERN_BY_ID[patternId].obstacles).length,
-    26
+    27
   );
+  assert.deepEqual(PATTERN_BY_ID["opening-pair-wide"].obstacles
+    .filter((obstacle) => obstacle.timeOffset === 3)
+    .map((obstacle) => [obstacle.row, obstacle.typeId]), [
+      [0, "head"],
+      [5, "head"]
+    ]);
 });
 
 test("every scheduled tier 1 pattern creates and validates at runtime", () => {
@@ -877,9 +884,9 @@ test("no gameplay RNG changes ordinary obstacle schedule", () => {
 
   assert.equal(event.patternId, "opening-single-low");
   assert.deepEqual(event.heads.map((head) => [head.row, head.obstacleTypeId, head.timeOffset]), [
-    [4, "head", 0],
+    [5, "head", 0],
     [3, "head", 1.5],
-    [5, "head", 3]
+    [3, "head", 3]
   ]);
 });
 
