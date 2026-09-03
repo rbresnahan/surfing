@@ -575,27 +575,23 @@ test("tier 1 foundation catalog matches the revised authored grid", () => {
       ]
     },
     "opening-gate-top": {
-      safeRoute: "split top-and-lower pressure with riser",
+      safeRoute: "alternating top and lower-band pressure",
       obstacles: [
         [0, 0, "head"],
-        [4, 0.25, "head"],
         [5, 0.75, "head"],
         [0, 1, "head"],
         [4, 1.75, "scuba-man"],
-        [5, 2.25, "head"],
-        [4, 2.75, "head"]
+        [5, 2.75, "head"]
       ]
     },
     "opening-gate-bottom": {
-      safeRoute: "center pressure with split edge escape",
+      safeRoute: "split edge transition with upper riser",
       obstacles: [
-        [0, 0, "head"],
-        [2, 0.5, "head"],
-        [2, 1.25, "head"],
-        [0, 2, "head"],
-        [5, 2, "scuba-man"],
-        [2, 2.5, "head"],
-        [2, 3, "head"]
+        [1, 0, "head"],
+        [0, 1.25, "head"],
+        [5, 1.75, "head"],
+        [0, 2, "scuba-man"],
+        [1, 3, "head"]
       ]
     },
     "opening-single-center": {
@@ -610,7 +606,7 @@ test("tier 1 foundation catalog matches the revised authored grid", () => {
   };
 
   assert.deepEqual(swimmerTier(1).schedule, Object.keys(expected));
-  assert.equal(Object.values(expected).reduce((sum, definition) => sum + definition.obstacles.length, 0), 30);
+  assert.equal(Object.values(expected).reduce((sum, definition) => sum + definition.obstacles.length, 0), 26);
   for (const [patternId, definition] of Object.entries(expected)) {
     const pattern = PATTERN_BY_ID[patternId];
     assert.equal(pattern.tier, 1);
@@ -631,7 +627,7 @@ test("tier 1 foundation catalog matches the revised authored grid", () => {
   );
   assert.equal(
     swimmerTier(1).schedule.flatMap((patternId) => PATTERN_BY_ID[patternId].obstacles).length,
-    30
+    26
   );
 });
 
@@ -1067,10 +1063,10 @@ test("fairness validator samples surfer positions through authoritative movement
 
 test("overlapping patterns are rejected when their combined route is blocked", () => {
   const topGate = instantiatePattern(PATTERN_BY_ID["opening-gate-top"], { mirror: false });
-  const bottomGate = instantiatePattern(PATTERN_BY_ID["opening-gate-bottom"], { mirror: false });
+  const centerReset = instantiatePattern(PATTERN_BY_ID["opening-single-center"], { mirror: false });
   const result = validatePatternSequence([
     { pattern: topGate, startTime: 0 },
-    { pattern: bottomGate, startTime: 0 }
+    { pattern: centerReset, startTime: 0 }
   ], {
     speed: CONFIG.OBSTACLE_START_SPEED,
     surferY: midpoint(CONFIG.SURF_BOUNDS.top, CONFIG.SURF_BOUNDS.bottom)
