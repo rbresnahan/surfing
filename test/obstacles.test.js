@@ -57,12 +57,17 @@ const SCUBA_MAN_TYPE = getDodgeObstacleType("scuba-man");
 const TUBE_GIRL_TYPE = getDodgeObstacleType("tube-girl");
 const TUBE_WOMAN_TYPE = getDodgeObstacleType("tube-woman");
 
-test("single events always have a valid Y position", () => {
+test("first authored foundation event always has valid Y positions", () => {
   for (let i = 0; i < 50; i += 1) {
     const event = createObstacleEvent({ surferY: 300, elapsed: 0, random: fixedRandom([0.1, i / 50]) });
-    assert.equal(event.type, "single");
-    assert.equal(event.heads.length, 1);
-    assertHeadInsideBounds(event.heads[0]);
+    assert.equal(event.type, "pattern");
+    assert.equal(event.patternId, "opening-single-low");
+    assert.deepEqual(event.heads.map((head) => [head.row, head.obstacleTypeId, head.timeOffset]), [
+      [4, "head", 0],
+      [1, "head", 1],
+      [2, "head", 2]
+    ]);
+    event.heads.forEach(assertHeadInsideBounds);
   }
 });
 
@@ -440,8 +445,16 @@ test("ordinary obstacle spawning uses authored deterministic obstacle types", ()
   const pattern = PATTERN_BY_ID["opening-pair-wide"];
   const event = createObstacleEvent({ surferY: 300, elapsed: 0, pattern, difficultyStage: 0 });
 
-  assert.deepEqual(event.heads.map((head) => head.obstacleTypeId), ["head", "tube-woman"]);
-  assert.deepEqual(event.heads.map((head) => head.assetKey), ["dodge-head", "dodge-tube-woman"]);
+  assert.deepEqual(event.heads.map((head) => [head.row, head.obstacleTypeId, head.assetKey, head.timeOffset]), [
+    [0, "head", "dodge-head", 0],
+    [5, "head", "dodge-head", 0],
+    [0, "head", "dodge-head", 1],
+    [4, "head", "dodge-head", 1],
+    [1, "scuba-man", "dodge-scuba-man-water", 1.75],
+    [5, "head", "dodge-head", 2],
+    [0, "head", "dodge-head", 2.75],
+    [4, "head", "dodge-head", 2.75]
+  ]);
 });
 
 test("a normal fairness-validated pattern can spawn noodle-man", () => {
@@ -532,6 +545,95 @@ test("tier 1-3 deterministic schedule order remains authored", () => {
     "stage2-dense-gate",
     "stage2-long-weave"
   ]);
+});
+
+test("tier 1 foundation catalog matches the revised authored grid", () => {
+  const expected = {
+    "opening-single-low": {
+      safeRoute: "three-step lower-to-upper stagger",
+      obstacles: [
+        [4, 0, "head"],
+        [1, 1, "head"],
+        [2, 2, "head"]
+      ]
+    },
+    "opening-single-high": {
+      safeRoute: "five-step lower-to-upper sweep",
+      obstacles: [
+        [3, 0, "head"],
+        [4, 1, "head"],
+        [1, 1.75, "head"],
+        [5, 2.5, "head"],
+        [0, 2.75, "head"]
+      ]
+    },
+    "opening-pair-wide": {
+      safeRoute: "alternating split-edge pressure",
+      obstacles: [
+        [0, 0, "head"],
+        [5, 0, "head"],
+        [0, 1, "head"],
+        [4, 1, "head"],
+        [1, 1.75, "scuba-man"],
+        [5, 2, "head"],
+        [0, 2.75, "head"],
+        [4, 2.75, "head"]
+      ]
+    },
+    "opening-gate-top": {
+      safeRoute: "lower diagonal with upper riser and return",
+      obstacles: [
+        [0, 0, "head"],
+        [3, 0.25, "head"],
+        [4, 0.5, "head"],
+        [5, 0.75, "head"],
+        [5, 1.25, "head"],
+        [1, 1.5, "head"],
+        [0, 2, "scuba-man"],
+        [5, 2.25, "head"],
+        [4, 2.5, "head"],
+        [3, 2.75, "head"]
+      ]
+    },
+    "opening-gate-bottom": {
+      safeRoute: "upper diagonal with lower riser and return",
+      obstacles: [
+        [0, 0, "head"],
+        [1, 0.25, "head"],
+        [2, 0.5, "head"],
+        [3, 0.75, "head"],
+        [2, 1.25, "head"],
+        [1, 1.5, "head"],
+        [5, 1.75, "scuba-man"],
+        [0, 2, "head"],
+        [1, 2.25, "head"],
+        [2, 2.5, "head"],
+        [3, 2.75, "head"]
+      ]
+    },
+    "opening-single-center": {
+      safeRoute: "center-channel pressure reset",
+      obstacles: [
+        [2, 0, "head"],
+        [3, 1, "head"],
+        [3, 1.75, "scuba-man"],
+        [2, 2, "head"],
+        [2, 2.75, "head"]
+      ]
+    }
+  };
+
+  assert.deepEqual(swimmerTier(1).schedule, Object.keys(expected));
+  for (const [patternId, definition] of Object.entries(expected)) {
+    const pattern = PATTERN_BY_ID[patternId];
+    assert.equal(pattern.tier, 1);
+    assert.equal(pattern.safeRoute, definition.safeRoute);
+    assert.deepEqual(
+      pattern.obstacles.map((obstacle) => [obstacle.row, obstacle.timeOffset, obstacle.typeId]),
+      definition.obstacles,
+      patternId
+    );
+  }
 });
 
 test("every scheduled tier 1 pattern creates and validates at runtime", () => {
@@ -734,7 +836,11 @@ test("no gameplay RNG changes ordinary obstacle schedule", () => {
   });
 
   assert.equal(event.patternId, "opening-single-low");
-  assert.deepEqual(event.heads.map((head) => [head.row, head.obstacleTypeId]), [[4, "head"]]);
+  assert.deepEqual(event.heads.map((head) => [head.row, head.obstacleTypeId, head.timeOffset]), [
+    [4, "head", 0],
+    [1, "head", 1],
+    [2, "head", 2]
+  ]);
 });
 
 test("stage row release tuning is centralized", () => {
@@ -848,12 +954,13 @@ test("minimum two-row openings are visibly passable while one-row openings are n
 
 test("pattern validation materializes authored obstacle type geometry", () => {
   const pattern = instantiatePattern(PATTERN_BY_ID["opening-single-center"]);
-  const [obstacle] = flattenPatterns([{ pattern }], CONFIG.OBSTACLE_START_SPEED);
-  const tubeGirl = materializeDodgeObstacleGeometry("tube-girl");
+  const obstacle = flattenPatterns([{ pattern }], CONFIG.OBSTACLE_START_SPEED)
+    .find((candidate) => candidate.typeId === "scuba-man");
+  const scubaMan = materializeDodgeObstacleGeometry("scuba-man");
 
-  assert.equal(obstacle.typeId, "tube-girl");
-  assert.equal(obstacle.obstacleTypeId, "tube-girl");
-  assert.equal(obstacle.collisionHeight, tubeGirl.collisionHeight);
+  assert.equal(obstacle.typeId, "scuba-man");
+  assert.equal(obstacle.obstacleTypeId, "scuba-man");
+  assert.equal(obstacle.collisionHeight, scubaMan.collisionHeight);
   assert.notEqual(obstacle.collisionWidth, materializeDodgeObstacleGeometry("head").collisionWidth);
 });
 
